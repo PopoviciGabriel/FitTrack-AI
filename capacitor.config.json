@@ -1,0 +1,6 @@
+{
+  "appId": "com.fittrack.pro",
+  "appName": "FitTrack Pro",
+  "webDir": "dist",
+  "bundledWebRuntime": false
+}
