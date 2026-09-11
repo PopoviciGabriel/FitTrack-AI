@@ -3,6 +3,75 @@ export interface Set {
   weight: number;
   reps: number;
   completed: boolean;
+  rpe?: number; // 6 to 10 (Rate of Perceived Exertion)
+}
+
+export interface RoutineTemplate {
+  id: string;
+  name: string;
+  description: string;
+  split: "PPL" | "Upper/Lower" | "Full Body" | "Arnold" | "Custom";
+  exerciseIds: string[];
+  exercises: {
+    exerciseId: string;
+    name: string;
+    defaultSets: number;
+    targetReps: number;
+  }[];
+}
+
+export interface MacroMealItem {
+  id: string;
+  name: string;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fats: number;
+  time?: string;
+}
+
+export interface MacroDay {
+  date: string; // YYYY-MM-DD
+  targetCalories: number;
+  targetProtein: number;
+  targetCarbs: number;
+  targetFats: number;
+  meals: MacroMealItem[];
+}
+
+export interface MacroGoal {
+  type: "hypertrophy" | "maintenance" | "cutting";
+  calories: number;
+  protein: number; // in grams
+  carbs: number;   // in grams
+  fats: number;    // in grams
+}
+
+export interface MuscleGroupVolume {
+  category: string;
+  directSets: number;
+  status: "sub-antrenat" | "optim" | "supra-antrenat";
+  recommendedSetsRange: string;
+}
+
+export interface AiVolumeAnalysis {
+  recoveryScore: number; // 0 - 100
+  recoveryStatus: "Excelentă" | "Bună" | "Risc de OBOSEALĂ" | "Supraantrenament";
+  fatigueLevel: "Scăzut" | "Moderat" | "Ridicată";
+  muscleVolumes: MuscleGroupVolume[];
+  stagnantExercises: { name: string; suggestion: string }[];
+  progressiveOverloadTips: string[];
+  nextWorkoutFocus: string;
+  analyzedAt: string;
+}
+
+export interface LicenseInfo {
+  isProUser: boolean;
+  tier: "free" | "pro_lifetime";
+  purchaseDate?: string;
+  orderId?: string;
+  provider?: "stripe" | "lemonsqueezy" | "google_play" | "promo_code";
+  pricePaid?: string;
 }
 
 export interface ExerciseEntry {

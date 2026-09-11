@@ -1,27 +1,8 @@
-# Dependinte Node
 node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Build web Vite
+build/
 dist/
-dist-ssr/
-*.local
-
-# Android & Gradle
-android/app/build/
-android/.gradle/
-android/build/
-android/captures/
-.gradle/
-
-# Setari IDE
-.idea/
-.vscode/
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+coverage/
 .DS_Store
+*.log
+.env*
+!.env.example

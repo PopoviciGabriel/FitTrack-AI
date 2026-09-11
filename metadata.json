@@ -1,6 +1,8 @@
 {
   "name": "FitTrack Pro",
-  "description": "O aplicație modernă pentru monitorizarea progresului la sala de forță și fitness, concepută pentru performanță și simplitate.",
+  "description": "Aplicație comercială de fitness & hipertrofie: antrenamente, nutriție macro, analize AI și progressive overload.",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
