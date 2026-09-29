@@ -4,6 +4,7 @@ export interface Set {
   reps: number;
   completed: boolean;
   rpe?: number; // 6 to 10 (Rate of Perceived Exertion)
+  isPR?: boolean; // 🏆 Personal Record indicator
 }
 
 export interface RoutineTemplate {
@@ -20,13 +21,36 @@ export interface RoutineTemplate {
   }[];
 }
 
+export type MealSlotCategory = "mic_dejun" | "pranz" | "pre_workout" | "post_workout" | "cina" | "gustari";
+
+export interface FoodItem {
+  id: string;
+  name: string;
+  category: "Proteine" | "Carbohidrați Complecși" | "Grăsimi Sănătoase" | "Lactate & Shake-uri" | "Legume & Fructe";
+  servingGrams: number; // 100g base reference
+  defaultPortion: number; // typical serving in grams
+  unit: string; // "g", "scoop", "buc", "lingură"
+  calories: number; // per 100g
+  protein: number;  // per 100g
+  carbs: number;    // per 100g
+  fats: number;     // per 100g
+  fiber: number;    // per 100g
+  sugar?: number;   // per 100g
+  sodium?: number;  // mg per 100g
+}
+
 export interface MacroMealItem {
   id: string;
   name: string;
+  category: MealSlotCategory;
+  grams: number;
   calories: number;
   protein: number;
   carbs: number;
   fats: number;
+  fiber?: number;
+  sugar?: number;
+  sodium?: number;
   time?: string;
 }
 
@@ -36,6 +60,9 @@ export interface MacroDay {
   targetProtein: number;
   targetCarbs: number;
   targetFats: number;
+  targetFiber?: number;
+  targetWaterMl?: number;
+  waterMl: number;
   meals: MacroMealItem[];
 }
 
@@ -45,6 +72,34 @@ export interface MacroGoal {
   protein: number; // in grams
   carbs: number;   // in grams
   fats: number;    // in grams
+  fiber?: number;  // in grams
+  waterMl?: number;// in ml
+}
+
+export interface MetabolicProfile {
+  gender: "male" | "female";
+  age: number;
+  weightKg: number;
+  heightCm: number;
+  activityLevel: "sedentary" | "light" | "moderate" | "active" | "very_active";
+  goal: "hypertrophy" | "maintenance" | "cutting";
+  targetRateKgPerWeek: number; // e.g. +0.25 kg/week
+  calculatedBmr?: number;
+  calculatedTdee?: number;
+}
+
+export interface AiMealSuggestion {
+  name: string;
+  description: string;
+  category: MealSlotCategory;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fats: number;
+  fiber: number;
+  prepTimeMin?: number;
+  ingredients: string[];
+  instructions: string[];
 }
 
 export interface MuscleGroupVolume {
@@ -93,6 +148,18 @@ export interface Workout {
   title: string;
   entries: ExerciseEntry[];
   history?: WorkoutSnapshot[];
+  durationSeconds?: number;
+}
+
+export interface BodyMeasurementEntry {
+  id: string;
+  date: string; // ISO date or YYYY-MM-DD
+  armCm?: number; // Braț (cm)
+  chestCm?: number; // Piept (cm)
+  waistCm?: number; // Talie (cm)
+  legsCm?: number; // Coapsă / Picioare (cm)
+  hipsCm?: number; // Șolduri (cm)
+  notes?: string;
 }
 
 export interface ProgressEntry {
@@ -114,10 +181,14 @@ export interface Exercise {
     | "Quadriceps (Cvadricepși)"
     | "Hamstrings (Femurali)"
     | "Glutes (Fesieri)"
+    | "ADDUCTORS (ADUCTORI)"
+    | "Adductors (Aductori)"
+    | "Aductori (Adductors)"
     | "Calves & Tibialis (Gambe și Tibie)"
     | "Forearms & Grip (Antebrațe)"
     | "Core & Abs (Abdomen)"
     | "Olympic & Full Body";
+  targetMuscle?: string;
   description?: string;
 }
 
@@ -327,12 +398,48 @@ export const PRESET_EXERCISES: Exercise[] = [
   { id: "cable-glute-kickbacks", name: "Cable Glute Kickbacks", category: "Glutes (Fesieri)" },
   { id: "machine-glute-kickbacks", name: "Machine Glute Kickbacks", category: "Glutes (Fesieri)" },
   { id: "machine-hip-abduction", name: "Machine Hip Abduction", category: "Glutes (Fesieri)" },
-  { id: "machine-hip-adduction", name: "Machine Hip Adduction", category: "Glutes (Fesieri)" },
   { id: "kettlebell-swings", name: "Kettlebell Swings", category: "Glutes (Fesieri)" },
   { id: "frog-pumps", name: "Frog Pumps", category: "Glutes (Fesieri)" },
   { id: "deficit-curtsy-lunges", name: "Deficit Curtsy Lunges", category: "Glutes (Fesieri)" },
 
-  // 9) Calves & Tibialis (Gambe și Tibie)
+  // 9) Adductors (Aductori)
+  { 
+    id: "seated-machine-adduction", 
+    name: "Seated Machine Adduction", 
+    category: "ADDUCTORS (ADUCTORI)",
+    targetMuscle: "ADDUCTORS (ADUCTORI)",
+    description: "Izolare și hipertrofie pentru aductori la aparatul dedicat."
+  },
+  { 
+    id: "dumbbell-sumo-squat", 
+    name: "Dumbbell Sumo Squat", 
+    category: "ADDUCTORS (ADUCTORI)",
+    targetMuscle: "ADDUCTORS (ADUCTORI)",
+    description: "Exercițiu compus ce activează intens aductorii, gluteii și cvadricepșii."
+  },
+  { 
+    id: "copenhagen-plank", 
+    name: "Copenhagen Plank", 
+    category: "ADDUCTORS (ADUCTORI)",
+    targetMuscle: "ADDUCTORS (ADUCTORI)",
+    description: "Stabilitate izometrică de nivel avansat pentru aductori și core."
+  },
+  { 
+    id: "cable-hip-adduction", 
+    name: "Cable Hip Adduction", 
+    category: "ADDUCTORS (ADUCTORI)",
+    targetMuscle: "ADDUCTORS (ADUCTORI)",
+    description: "Izolare cu tensiune continuă pe aductori la scripete."
+  },
+  { 
+    id: "barbell-sumo-deadlift", 
+    name: "Barbell Sumo Deadlift", 
+    category: "ADDUCTORS (ADUCTORI)",
+    targetMuscle: "ADDUCTORS (ADUCTORI)",
+    description: "Îndreptare stil sumo cu priză largă, implicare masivă a aductorilor și posteriorului."
+  },
+
+  // 10) Calves & Tibialis (Gambe și Tibie)
   { id: "standing-machine-calf-raises", name: "Standing Machine Calf Raises", category: "Calves & Tibialis (Gambe și Tibie)" },
   { id: "standing-barbell-calf-raises", name: "Standing Barbell Calf Raises", category: "Calves & Tibialis (Gambe și Tibie)" },
   { id: "seated-calf-raises", name: "Seated Calf Raises", category: "Calves & Tibialis (Gambe și Tibie)" },

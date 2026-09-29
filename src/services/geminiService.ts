@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { Workout, AiVolumeAnalysis, MuscleGroupVolume } from "../types";
+import { Workout, AiVolumeAnalysis, MuscleGroupVolume, AiMealSuggestion, MealSlotCategory } from "../types";
 
 let genAI: GoogleGenAI | null = null;
 
@@ -61,7 +61,7 @@ function calculateFallbackAnalysis(workouts: Workout[]): AiVolumeAnalysis {
         category = "Umeri (Shoulders)";
       } else if (name.includes("curl") || name.includes("biceps") || name.includes("triceps") || name.includes("skull") || name.includes("pushdown")) {
         category = "Brațe (Biceps & Triceps)";
-      } else if (name.includes("squat") || name.includes("leg") || name.includes("lunge") || name.includes("calf") || name.includes("genuflex") || name.includes("presa")) {
+      } else if (name.includes("squat") || name.includes("leg") || name.includes("lunge") || name.includes("calf") || name.includes("genuflex") || name.includes("presa") || name.includes("adduct") || name.includes("aductor")) {
         category = "Picioare (Quads & Hams)";
       } else if (name.includes("ab") || name.includes("crunch") || name.includes("plank") || name.includes("core")) {
         category = "Abdomen & Core";
@@ -244,26 +244,246 @@ Răspunde exclusiv cu JSON brut, fără markdown backticks.`;
  * Quick coach advice for home dashboard
  */
 export async function getWorkoutAdvice(recentWorkouts: Workout[]): Promise<string> {
+  const defaultAdvice = "Prioritatea următoare: crește greutatea cu 1-2.5 kg sau adaugă 1 repetare curată la primul exercițiu compus.";
+
   try {
     const ai = getAI();
     if (!ai) {
-      return "Fiecare repetare controlată apropie noul record. Menține ritmul și asigură-te că dormi suficient!";
+      if (recentWorkouts.length > 0) {
+        const last = recentWorkouts[0];
+        const mainExercise = last.entries[0]?.name;
+        if (mainExercise) {
+          return `La următoarea sesiune, vizează supraîncărcarea progresivă la ${mainExercise}: adaugă 1 repetare curată sau 1.25 kg pe bară.`;
+        }
+        return `La următoarea sesiune, mărește intensitatea la primul exercițiu compus din ${last.title}, păstrând forma strictă de execuție.`;
+      }
+      return defaultAdvice;
     }
 
-    const summary = recentWorkouts.map((w) => `${w.title} (${w.entries.length} exerciții)`).join("; ");
-    const prompt = `Antrenamente recente: ${summary}. Dă un sfat tehnic concret de forță/hipertrofie în 2 fraze scurte, motivant, în limba română.`;
+    const summary = recentWorkouts.map((w) => `${w.title} (${w.entries.map(e => e.name).slice(0, 3).join(", ")})`).join("; ");
+    const prompt = `Antrenamente recente ale utilizatorului: ${summary}.
+Cerință: Oferă un REZUMAT DE ACȚIUNE COMPLET, important dar scurt, despre ceea ce trebuie să facă utilizatorul la următorul antrenament.
+
+REGULI OBLIGATORII:
+- Enunțul TREBUIE să fie COMPLET (o singură frază completă sau două propoziții scurte legate, fără idei neterminate).
+- Conținut: Spune-i direct și clar ce trebuie să facă (ex: supraîncărcare progresivă la mișcarea principală, pauze optime sau volum pe grupa prioritară).
+- Lungime: Scurt, important și la obiect (între 14 și 22 de cuvinte).
+- Format: STRICT text simplu, FĂRĂ formatare JSON, FĂRĂ acolade, FĂRĂ markdown, FĂRĂ ghilimele.
+- Limba: Română.`;
 
     const response = await ai.models.generateContent({
       model: "gemini-3.8-flash",
       contents: prompt,
       config: {
-        systemInstruction: SYSTEM_INSTRUCTION,
+        systemInstruction: "Ești un antrenor de forță și hipertrofie de elită. Returnezi STRICT o recomandare completă și acționabilă în limba română (14-22 de cuvinte, text simplu), spunându-i utilizatorului direct ce are de făcut la următoarea sesiune. Niciodată nu folosi JSON, markdown, ghilimele sau fraze neterminate.",
       },
     });
 
-    return response.text?.trim() || "Continuă supraîncărcarea progresivă cu execuție strictă!";
+    let raw = response.text?.trim() || "";
+
+    // Robust parsing/cleaning if AI accidentally sent JSON or codeblocks
+    if (raw.startsWith("{") && raw.endsWith("}")) {
+      try {
+        const parsed = JSON.parse(raw);
+        raw = parsed.advice || parsed.tip || parsed.message || parsed.sfat || parsed.action || Object.values(parsed)[0] as string || raw;
+      } catch {
+        // ignore
+      }
+    }
+    raw = raw
+      .replace(/```json/gi, "")
+      .replace(/```/g, "")
+      .replace(/[{}"`]/g, "")
+      .trim();
+
+    return raw || defaultAdvice;
   } catch (error) {
     console.error("Gemini Error:", error);
-    return "Concentrează-te pe tensiunea mecanică și adaugă 1-2 repetări per serie înainte de a mări greutatea.";
+    return defaultAdvice;
   }
 }
+
+/**
+ * Heuristic fallback meal generator for bodybuilding and hypertrophy
+ */
+function getFallbackMeal(query: string, category: MealSlotCategory): AiMealSuggestion {
+  const q = query.toLowerCase();
+
+  if (q.includes("ovaz") || q.includes("oat") || q.includes("mic dejun") || category === "mic_dejun") {
+    return {
+      name: "Bol Anabolic cu Fulgi de Ovăz, Whey & Fructe de Pădure",
+      description: "Combinație clasică de carbohidrați complecși cu absorbție lentă și proteine rapide pentru sinteză proteică maximă dimineața.",
+      category: "mic_dejun",
+      calories: 520,
+      protein: 48,
+      carbs: 62,
+      fats: 9,
+      fiber: 8,
+      prepTimeMin: 6,
+      ingredients: [
+        "80g Fulgi de ovăz fini",
+        "35g Pudră proteică Whey Isolate",
+        "15g Unt de arahide natural",
+        "100g Fructe de pădure (afine / zmeură)",
+        "200ml Apă fierbinte sau lapte degresat"
+      ],
+      instructions: [
+        "Fierbe sau hidratează fulgii de ovăz cu apă caldă timp de 3 minute.",
+        "Lasă să se răcească 1 minut, apoi adaugă pudra proteică și omogenizează bine.",
+        "Decorează cu fructele de pădure și lingura de unt de arahide deasupra."
+      ]
+    };
+  }
+
+  if (q.includes("vita") || q.includes("cartof") || q.includes("cina") || category === "cina") {
+    return {
+      name: "Mușchi de Vită la Grătar cu Cartofi Dulci și Sparanghel",
+      description: "Masă bogată în creatină naturală, fier hemic și carbohidrați cu indice glicemic moderat pentru refacerea glicogenului.",
+      category: "cina",
+      calories: 640,
+      protein: 52,
+      carbs: 58,
+      fats: 18,
+      fiber: 7,
+      prepTimeMin: 22,
+      ingredients: [
+        "180g Mușchi slab de vită",
+        "250g Cartofi dulci copți la cuptor",
+        "120g Sparanghel verde sotat",
+        "10g Ulei de măsline extra-virgin",
+        "Sare de mare, piper negru măcinat și rozmarin"
+      ],
+      instructions: [
+        "Condimentează carnea cu sare și piper; gătește-o la tigaie grill 3-4 minute pe fiecare parte.",
+        "Coace cartofii dulci tăiați cuburi la 200°C cu puțin rozmarin și ulei de măsline.",
+        "Sotează sparanghelul în tigaie pentru 5 minute până devine crocant."
+      ]
+    };
+  }
+
+  if (q.includes("shake") || q.includes("post") || category === "post_workout") {
+    return {
+      name: "Super-Shake Anabolic Post-Workout",
+      description: "Fereastră metabolică optimizată cu proteine Whey cu absorbție rapidă și carbohidrați simpli pentru reîncărcare celulară.",
+      category: "post_workout",
+      calories: 460,
+      protein: 44,
+      carbs: 56,
+      fats: 6,
+      fiber: 4,
+      prepTimeMin: 3,
+      ingredients: [
+        "40g Whey Isolate",
+        "1 Banană coaptă medie",
+        "30g Făină de ovăz / carbohidrați rapizi",
+        "5g Creatină monohidrat",
+        "300ml Apă rece sau lapte de migdale"
+      ],
+      instructions: [
+        "Pune toate ingredientele în blender.",
+        "Mizează 30-45 secunde la viteză mare până devine o băutură cremoasă.",
+        "Consumă în primele 45 de minute după terminarea antrenamentului."
+      ]
+    };
+  }
+
+  // Default clean Bodybuilding meal
+  return {
+    name: "Bol de Culturism: Piept de Pui, Orez Basmati & Broccoli",
+    description: "Standardul de aur în alimentația sportivă: digestie ușoară, profil de aminoacizi complet și densitate nutritivă curată.",
+    category: category || "pranz",
+    calories: 590,
+    protein: 55,
+    carbs: 68,
+    fats: 10,
+    fiber: 6,
+    prepTimeMin: 18,
+    ingredients: [
+      "180g Piept de pui la grătar",
+      "85g Orez Basmati (cântărit uscat)",
+      "150g Broccoli fiert la abur",
+      "10g Ulei de măsline extravirgin",
+      "Condimente: boia dulce, usturoi granulat, oregano, sare"
+    ],
+    instructions: [
+      "Fierbe orezul Basmati în raport de 1:2 cu apă și un praf de sare timp de 12 minute.",
+      "Gătește pieptul de pui marinat cu condimente pe grătar sau tigaie încinsă timp de 5-6 minute pe parte.",
+      "Gătește buchețelele de broccoli la abur timp de 6 minute și adaugă uleiul de măsline la final."
+    ]
+  };
+}
+
+/**
+ * AI Nutrition Scanner & Meal Suggestion powered by Gemini 3.8 Flash
+ */
+export async function generateNutritionSuggestion(
+  query: string,
+  targetCategory: MealSlotCategory = "pranz",
+  targetCalories?: number,
+  targetProtein?: number
+): Promise<AiMealSuggestion> {
+  const fallback = getFallbackMeal(query, targetCategory);
+
+  try {
+    const ai = getAI();
+    if (!ai) {
+      return fallback;
+    }
+
+    const prompt = `Ești un Nutriționist Sportiv IFBB Pro și expert în știința nutriției pentru hipertrofie și culturism.
+Utilizatorul dorește o masă / rețetă optimizată bazată pe cererea următoare:
+"${query}"
+
+Categorie masă dorită: "${targetCategory}".
+${targetCalories ? `Țintă calorică aproximativă pentru această masă: ~${targetCalories} kcal.` : ""}
+${targetProtein ? `Țintă proteine pentru această masă: ~${targetProtein}g proteine.` : ""}
+
+Cerințe stricte:
+1. Calculează matematic macro-nutrienții reali (calorii, proteine, carbohidrați, grăsimi, fibre în grame).
+2. Returnează o rețetă completă cu cantități specifice în grame (ex: "180g piept de pui", "80g orez").
+3. Răspunde EXCLUSIV cu un JSON valid (fără markdown code blocks, doar JSON brut) cu schema:
+{
+  "name": string (numele mesei în limba română),
+  "description": string (beneficiu pentru hipertrofie/forță/recuperare),
+  "category": "${targetCategory}",
+  "calories": number,
+  "protein": number,
+  "carbs": number,
+  "fats": number,
+  "fiber": number,
+  "prepTimeMin": number,
+  "ingredients": string[],
+  "instructions": string[]
+}`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.8-flash",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+      },
+    });
+
+    const text = response.text?.trim() || "";
+    const cleaned = text.replace(/^```json\n?/, "").replace(/```$/, "").trim();
+    const parsed = JSON.parse(cleaned);
+
+    return {
+      name: parsed.name || fallback.name,
+      description: parsed.description || fallback.description,
+      category: parsed.category || targetCategory,
+      calories: typeof parsed.calories === "number" ? parsed.calories : fallback.calories,
+      protein: typeof parsed.protein === "number" ? parsed.protein : fallback.protein,
+      carbs: typeof parsed.carbs === "number" ? parsed.carbs : fallback.carbs,
+      fats: typeof parsed.fats === "number" ? parsed.fats : fallback.fats,
+      fiber: typeof parsed.fiber === "number" ? parsed.fiber : fallback.fiber,
+      prepTimeMin: typeof parsed.prepTimeMin === "number" ? parsed.prepTimeMin : fallback.prepTimeMin,
+      ingredients: Array.isArray(parsed.ingredients) && parsed.ingredients.length > 0 ? parsed.ingredients : fallback.ingredients,
+      instructions: Array.isArray(parsed.instructions) && parsed.instructions.length > 0 ? parsed.instructions : fallback.instructions,
+    };
+  } catch (error) {
+    console.warn("AI Nutrition suggestion fallback:", error);
+    return fallback;
+  }
+}
+

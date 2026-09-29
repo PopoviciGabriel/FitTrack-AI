@@ -1,7 +1,38 @@
-import React, { useState, useEffect } from "react";
-import { Plus, Trash2, Utensils, Flame, Sparkles, Target, X, Check } from "lucide-react";
-import { MacroDay, MacroMealItem, MacroGoal } from "../types";
+import React, { useState, useEffect, useMemo } from "react";
+import { 
+  Flame, 
+  Dumbbell, 
+  Sparkles, 
+  Calculator, 
+  Plus, 
+  Trash2, 
+  ChevronDown, 
+  ChevronUp, 
+  ChevronLeft, 
+  ChevronRight, 
+  Calendar as CalendarIcon, 
+  Apple, 
+  Clock, 
+  TrendingUp, 
+  Award, 
+  Target, 
+  Zap, 
+  Coffee, 
+  UtensilsCrossed, 
+  Sun, 
+  Moon, 
+  Cookie,
+  Check
+} from "lucide-react";
+import { format, addDays, subDays, parseISO } from "date-fns";
+import { ro } from "date-fns/locale";
+import { MacroDay, MacroMealItem, MacroGoal, MealSlotCategory } from "../types";
 import { ProGuard } from "./ProGuard";
+import { HydrationCard } from "./nutrition/HydrationCard";
+import { FoodSearchModal } from "./nutrition/FoodSearchModal";
+import { MetabolicWizardModal } from "./nutrition/MetabolicWizardModal";
+import { AiMealModal } from "./nutrition/AiMealModal";
+import { WeeklyAdherenceChart } from "./nutrition/WeeklyAdherenceChart";
 
 interface NutritionViewProps {
   onUpgradeClick: () => void;
@@ -9,460 +40,688 @@ interface NutritionViewProps {
 
 const DEFAULT_GOAL: MacroGoal = {
   type: "hypertrophy",
-  calories: 2800,
-  protein: 175,
-  carbs: 320,
+  calories: 2850,
+  protein: 180,
+  carbs: 330,
   fats: 75,
+  fiber: 38,
+  waterMl: 3500,
 };
 
-const PRESET_MEALS = [
-  { name: "Shake Izolat Proteic & Banană", calories: 240, protein: 32, carbs: 26, fats: 2 },
-  { name: "Piept de Pui cu Orez Basmati", calories: 560, protein: 52, carbs: 65, fats: 8 },
-  { name: "Omletă din 4 Ouă & Pâine Integrală", calories: 440, protein: 30, carbs: 32, fats: 22 },
-  { name: "Iaurt Grecesc 2% & Fructe de Pădure", calories: 210, protein: 22, carbs: 24, fats: 4 },
-  { name: "Vită la Grătar cu Cartofi Dulci", calories: 620, protein: 48, carbs: 55, fats: 18 },
-  { name: "Ton în Suc Propriu & Paste Integrale", calories: 480, protein: 44, carbs: 60, fats: 6 },
+const MEAL_SLOTS: {
+  key: MealSlotCategory;
+  name: string;
+  subtitle: string;
+  icon: React.ElementType;
+}[] = [
+  { key: "mic_dejun", name: "Mic Dejun", subtitle: "Start metabolic & absorbție lentă", icon: Coffee },
+  { key: "pranz", name: "Prânz", subtitle: "Densitate proteică & carbohidrați", icon: Sun },
+  { key: "pre_workout", name: "Pre-Workout", subtitle: "Energie rapidă & glicogen", icon: Zap },
+  { key: "post_workout", name: "Post-Workout", subtitle: "Shake & reîncărcare celulară", icon: Dumbbell },
+  { key: "cina", name: "Cină", subtitle: "Refacere neuromusculară", icon: Moon },
+  { key: "gustari", name: "Gustări & Altele", subtitle: "Micronutrienți & ajustare", icon: Cookie },
 ];
 
 export const NutritionView: React.FC<NutritionViewProps> = ({ onUpgradeClick }) => {
-  const todayKey = new Date().toISOString().split("T")[0];
+  const [activeDate, setActiveDate] = useState<string>(() => format(new Date(), "yyyy-MM-dd"));
+  
+  // User Goal State
   const [goal, setGoal] = useState<MacroGoal>(() => {
     const saved = localStorage.getItem("fittrack_macro_goal");
     return saved ? JSON.parse(saved) : DEFAULT_GOAL;
   });
 
+  // Current Day Log State
   const [dayLog, setDayLog] = useState<MacroDay>(() => {
-    const saved = localStorage.getItem(`fittrack_nutrition_${todayKey}`);
-    return saved
-      ? JSON.parse(saved)
-      : {
-          date: todayKey,
-          targetCalories: goal.calories,
-          targetProtein: goal.protein,
-          targetCarbs: goal.carbs,
-          targetFats: goal.fats,
-          meals: [],
-        };
+    const saved = localStorage.getItem(`fittrack_nutrition_${activeDate}`);
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.warn("Parse error for date", e);
+      }
+    }
+    return {
+      date: activeDate,
+      targetCalories: goal.calories,
+      targetProtein: goal.protein,
+      targetCarbs: goal.carbs,
+      targetFats: goal.fats,
+      targetFiber: goal.fiber || 38,
+      targetWaterMl: goal.waterMl || 3500,
+      waterMl: 0,
+      meals: [],
+    };
   });
 
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [mealName, setMealName] = useState("");
-  const [calories, setCalories] = useState("");
-  const [protein, setProtein] = useState("");
-  const [carbs, setCarbs] = useState("");
-  const [fats, setFats] = useState("");
-  const [showGoalModal, setShowGoalModal] = useState(false);
+  // Load dayLog whenever activeDate changes
+  useEffect(() => {
+    const saved = localStorage.getItem(`fittrack_nutrition_${activeDate}`);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        setDayLog({
+          ...parsed,
+          waterMl: parsed.waterMl || 0,
+          targetWaterMl: parsed.targetWaterMl || goal.waterMl || 3500,
+          meals: parsed.meals || [],
+        });
+        return;
+      } catch (e) {
+        console.warn("Day load error:", e);
+      }
+    }
+
+    setDayLog({
+      date: activeDate,
+      targetCalories: goal.calories,
+      targetProtein: goal.protein,
+      targetCarbs: goal.carbs,
+      targetFats: goal.fats,
+      targetFiber: goal.fiber || 38,
+      targetWaterMl: goal.waterMl || 3500,
+      waterMl: 0,
+      meals: [],
+    });
+  }, [activeDate, goal]);
+
+  // Save changes to localStorage
+  useEffect(() => {
+    localStorage.setItem(`fittrack_nutrition_${activeDate}`, JSON.stringify(dayLog));
+  }, [dayLog, activeDate]);
 
   useEffect(() => {
     localStorage.setItem("fittrack_macro_goal", JSON.stringify(goal));
   }, [goal]);
 
-  useEffect(() => {
-    localStorage.setItem(`fittrack_nutrition_${todayKey}`, JSON.stringify(dayLog));
-  }, [dayLog, todayKey]);
+  // Modals visibility
+  const [showFoodModal, setShowFoodModal] = useState(false);
+  const [selectedSlotForAdd, setSelectedSlotForAdd] = useState<MealSlotCategory>("pranz");
+  const [showWizardModal, setShowWizardModal] = useState(false);
+  const [showAiMealModal, setShowAiMealModal] = useState(false);
+  const [showAdherenceChart, setShowAdherenceChart] = useState(false);
 
-  // Calculate totals
-  const totalCalories = dayLog.meals.reduce((sum, m) => sum + m.calories, 0);
-  const totalProtein = dayLog.meals.reduce((sum, m) => sum + m.protein, 0);
-  const totalCarbs = dayLog.meals.reduce((sum, m) => sum + m.carbs, 0);
-  const totalFats = dayLog.meals.reduce((sum, m) => sum + m.fats, 0);
+  // Collapsible slots state
+  const [collapsedSlots, setCollapsedSlots] = useState<Record<string, boolean>>({});
 
-  const addMeal = (item: MacroMealItem) => {
+  const toggleSlotCollapse = (slotKey: string) => {
+    setCollapsedSlots((prev) => ({ ...prev, [slotKey]: !prev[slotKey] }));
+  };
+
+  // Day Totals calculation
+  const totals = useMemo(() => {
+    let kcal = 0;
+    let p = 0;
+    let c = 0;
+    let f = 0;
+    let fiber = 0;
+    let sod = 0;
+
+    dayLog.meals.forEach((m) => {
+      kcal += m.calories || 0;
+      p += m.protein || 0;
+      c += m.carbs || 0;
+      f += m.fats || 0;
+      fiber += m.fiber || 0;
+      sod += m.sodium || 0;
+    });
+
+    return {
+      calories: Math.round(kcal),
+      protein: Math.round(p),
+      carbs: Math.round(c),
+      fats: Math.round(f),
+      fiber: Math.round(fiber),
+      sodium: Math.round(sod),
+    };
+  }, [dayLog.meals]);
+
+  // Add Item to Day
+  const handleAddMealItem = (item: MacroMealItem) => {
     setDayLog((prev) => ({
       ...prev,
       meals: [item, ...prev.meals],
     }));
   };
 
-  const removeMeal = (id: string) => {
+  // Remove Item from Day
+  const handleRemoveMealItem = (id: string) => {
     setDayLog((prev) => ({
       ...prev,
       meals: prev.meals.filter((m) => m.id !== id),
     }));
   };
 
-  const handleManualAdd = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!mealName.trim()) return;
-    const newItem: MacroMealItem = {
-      id: Math.random().toString(36).substring(2, 9),
-      name: mealName.trim(),
-      calories: parseFloat(calories) || 0,
-      protein: parseFloat(protein) || 0,
-      carbs: parseFloat(carbs) || 0,
-      fats: parseFloat(fats) || 0,
-      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    };
-    addMeal(newItem);
-    setMealName("");
-    setCalories("");
-    setProtein("");
-    setCarbs("");
-    setFats("");
-    setShowAddModal(false);
+  // Update Hydration
+  const handleUpdateWater = (newAmount: number) => {
+    setDayLog((prev) => ({
+      ...prev,
+      waterMl: newAmount,
+    }));
   };
 
-  const applyPreset = (preset: typeof PRESET_MEALS[0]) => {
-    addMeal({
-      id: Math.random().toString(36).substring(2, 9),
-      name: preset.name,
-      calories: preset.calories,
-      protein: preset.protein,
-      carbs: preset.carbs,
-      fats: preset.fats,
-      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    });
-    setShowAddModal(false);
+  // Apply new Goal from Wizard
+  const handleApplyNewGoal = (newGoal: MacroGoal) => {
+    setGoal(newGoal);
+    setDayLog((prev) => ({
+      ...prev,
+      targetCalories: newGoal.calories,
+      targetProtein: newGoal.protein,
+      targetCarbs: newGoal.carbs,
+      targetFats: newGoal.fats,
+      targetFiber: newGoal.fiber || 38,
+      targetWaterMl: newGoal.waterMl || 3500,
+    }));
   };
 
-  const setGoalType = (type: "hypertrophy" | "maintenance" | "cutting") => {
-    if (type === "hypertrophy") {
-      setGoal({ type, calories: 2900, protein: 180, carbs: 340, fats: 80 });
-    } else if (type === "maintenance") {
-      setGoal({ type, calories: 2450, protein: 165, carbs: 280, fats: 70 });
-    } else {
-      setGoal({ type, calories: 2050, protein: 185, carbs: 180, fats: 55 });
-    }
+  // Date navigation helpers
+  const handlePrevDay = () => {
+    const current = parseISO(activeDate);
+    setActiveDate(format(subDays(current, 1), "yyyy-MM-dd"));
   };
+
+  const handleNextDay = () => {
+    const current = parseISO(activeDate);
+    setActiveDate(format(addDays(current, 1), "yyyy-MM-dd"));
+  };
+
+  const handleToday = () => {
+    setActiveDate(format(new Date(), "yyyy-MM-dd"));
+  };
+
+  const isToday = activeDate === format(new Date(), "yyyy-MM-dd");
+
+  const openFoodSearchForSlot = (slot: MealSlotCategory) => {
+    setSelectedSlotForAdd(slot);
+    setShowFoodModal(true);
+  };
+
+  const openAiMealForSlot = (slot: MealSlotCategory) => {
+    setSelectedSlotForAdd(slot);
+    setShowAiMealModal(true);
+  };
+
+  const calorieDiff = (dayLog.targetCalories || goal.calories) - totals.calories;
+  const caloriePercent = Math.min(Math.round((totals.calories / (dayLog.targetCalories || goal.calories)) * 100), 100);
 
   return (
-    <div className="space-y-6 pb-24 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <header className="py-8 px-6 sticky top-0 bg-[#f4f7f0] dark:bg-[#0A0A0A] z-20 border-b border-slate-200 dark:border-white/5 -mx-4 transition-all flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-black tracking-tighter text-slate-950 dark:text-zinc-50 uppercase leading-none">
-            Nutriție.
-          </h1>
-          <p className="text-blue-600 dark:text-orange-500 text-[10px] font-black uppercase tracking-[0.4em] mt-1.5 leading-none">
-            Calorii & Macronutrienți
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setShowGoalModal(true)}
-            className="p-3 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl text-slate-700 dark:text-zinc-300 hover:text-blue-600 cursor-pointer shadow-sm"
-            title="Setează Obiectiv"
-          >
-            <Target className="size-5" />
-          </button>
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="bg-blue-600 dark:bg-orange-500 hover:bg-blue-700 dark:hover:bg-orange-600 text-white dark:text-black p-3 rounded-2xl transition-all active:scale-95 shadow-lg shadow-blue-600/20 cursor-pointer"
-          >
-            <Plus className="size-5" />
-          </button>
-        </div>
-      </header>
-
-      <ProGuard feature="nutrition" onUpgradeClick={onUpgradeClick}>
-        {/* Main Calorie & Macro Dashboard */}
-        <div className="p-8 bg-white dark:bg-[#1a1a1a] border border-slate-200/70 dark:border-white/5 rounded-[2.5rem] shadow-sm space-y-6">
-          <div className="flex justify-between items-center">
-            <div>
-              <span className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 dark:text-zinc-500">
-                Obiectiv {goal.type === "hypertrophy" ? "Hipertrofie (+Surplus)" : goal.type === "cutting" ? "Definire (-Deficit)" : "Recompoziție"}
+    <ProGuard
+      title="Modulul Nutriție Sportivă PRO"
+      description="Sistem complet de dietetică sportivă pentru hipertrofie și definire. Bază de date cu 40+ alimente de culturism, calculator metabolic BMR/TDEE, tracker de hidratare și AI Chef Gemini."
+      onUpgradeClick={onUpgradeClick}
+      badge="PRO LIFETIME"
+    >
+      <div className="space-y-6 pb-24 animate-in fade-in duration-300">
+        {/* HEADER & DATE SELECTOR */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+                Dietetică & Nutriție PRO
+              </h1>
+              <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-orange-500/20 text-orange-500 border border-orange-500/30">
+                {goal.type === "hypertrophy"
+                  ? "Hipertrofie Musculară"
+                  : goal.type === "cutting"
+                  ? "Definire / Fat Loss"
+                  : "Recompoziție"}
               </span>
-              <div className="flex items-baseline gap-2 mt-1">
-                <span className="text-4xl font-black text-slate-950 dark:text-white tracking-tight">
-                  {totalCalories}
-                </span>
-                <span className="text-slate-400 dark:text-zinc-500 font-bold text-sm">
-                  / {goal.calories} kcal
-                </span>
-              </div>
             </div>
-            <div className="size-16 rounded-3xl bg-blue-50 dark:bg-orange-500/10 border border-blue-100 dark:border-orange-500/20 flex flex-col items-center justify-center text-blue-600 dark:text-orange-500">
-              <Flame className="size-7" />
-            </div>
+            <p className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
+              Urmărire avansată a caloriilor, macro-nutrienților, hidratării și aderenței
+            </p>
           </div>
 
-          {/* Calorie Bar */}
-          <div className="w-full bg-slate-100 dark:bg-zinc-800 rounded-full h-3 overflow-hidden">
-            <div
-              className="bg-gradient-to-r from-blue-600 to-indigo-600 dark:from-orange-500 dark:to-amber-500 h-full rounded-full transition-all duration-500"
-              style={{ width: `${Math.min(100, (totalCalories / goal.calories) * 100)}%` }}
-            />
-          </div>
+          {/* Date Selector Pills */}
+          <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-zinc-900 p-1.5 rounded-2xl border border-slate-200 dark:border-white/5 self-start sm:self-auto">
+            <button
+              type="button"
+              onClick={handlePrevDay}
+              className="p-1.5 rounded-xl hover:bg-slate-200 dark:hover:bg-zinc-800 text-slate-600 dark:text-zinc-400 cursor-pointer transition-colors"
+              title="Ziua anterioară"
+            >
+              <ChevronLeft className="size-4" />
+            </button>
 
-          {/* Macro Split Grid */}
-          <div className="grid grid-cols-3 gap-3 pt-2">
-            {/* Protein */}
-            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/5 flex flex-col justify-between">
-              <div>
-                <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 dark:text-zinc-500">
-                  Proteine
-                </p>
-                <p className="text-xl font-black text-blue-600 dark:text-orange-400 mt-1">
-                  {totalProtein.toFixed(0)}g
-                </p>
-                <p className="text-[10px] font-bold text-slate-400 dark:text-zinc-500">
-                  țintă {goal.protein}g
-                </p>
+            <button
+              type="button"
+              onClick={handleToday}
+              className={`px-3 py-1 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                isToday
+                  ? "bg-orange-500 text-black shadow-sm"
+                  : "hover:bg-slate-200 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300"
+              }`}
+            >
+              {isToday ? "Azi" : format(parseISO(activeDate), "d MMMM", { locale: ro })}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleNextDay}
+              className="p-1.5 rounded-xl hover:bg-slate-200 dark:hover:bg-zinc-800 text-slate-600 dark:text-zinc-400 cursor-pointer transition-colors"
+              title="Ziua următoare"
+            >
+              <ChevronRight className="size-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* QUICK TOOLBAR BUTTONS */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          <button
+            type="button"
+            onClick={() => setShowWizardModal(true)}
+            className="p-3.5 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-900/90 dark:hover:bg-zinc-800 border border-slate-200 dark:border-white/10 text-left cursor-pointer transition-all active:scale-[0.98] group"
+          >
+            <div className="flex items-center gap-2 text-orange-500 mb-1">
+              <Calculator className="size-4 group-hover:scale-110 transition-transform" />
+              <span className="text-[10px] font-black uppercase tracking-wider">Wizard BMR & TDEE</span>
+            </div>
+            <p className="text-xs font-black text-slate-900 dark:text-white">Calculator Metabolic</p>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedSlotForAdd("pranz");
+              setShowAiMealModal(true);
+            }}
+            className="p-3.5 rounded-2xl bg-gradient-to-br from-purple-500/10 to-orange-500/10 hover:from-purple-500/20 hover:to-orange-500/20 border border-purple-500/30 text-left cursor-pointer transition-all active:scale-[0.98] group"
+          >
+            <div className="flex items-center gap-2 text-purple-400 mb-1">
+              <Sparkles className="size-4 group-hover:scale-110 transition-transform" />
+              <span className="text-[10px] font-black uppercase tracking-wider">Gemini 3.8 Flash</span>
+            </div>
+            <p className="text-xs font-black text-slate-900 dark:text-white">AI Meal Scanner & Chef</p>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => openFoodSearchForSlot("pranz")}
+            className="p-3.5 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-900/90 dark:hover:bg-zinc-800 border border-slate-200 dark:border-white/10 text-left cursor-pointer transition-all active:scale-[0.98] group"
+          >
+            <div className="flex items-center gap-2 text-blue-500 mb-1">
+              <Apple className="size-4 group-hover:scale-110 transition-transform" />
+              <span className="text-[10px] font-black uppercase tracking-wider">40+ Alimente</span>
+            </div>
+            <p className="text-xs font-black text-slate-900 dark:text-white">Bază Alimentară Sportivă</p>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowAdherenceChart(!showAdherenceChart)}
+            className={`p-3.5 rounded-2xl border text-left cursor-pointer transition-all active:scale-[0.98] group ${
+              showAdherenceChart
+                ? "bg-orange-500/15 border-orange-500 text-orange-500"
+                : "bg-slate-100 hover:bg-slate-200 dark:bg-zinc-900/90 dark:hover:bg-zinc-800 border-slate-200 dark:border-white/10"
+            }`}
+          >
+            <div className="flex items-center gap-2 text-emerald-500 mb-1">
+              <TrendingUp className="size-4 group-hover:scale-110 transition-transform" />
+              <span className="text-[10px] font-black uppercase tracking-wider">7 Zile Istoric</span>
+            </div>
+            <p className="text-xs font-black text-slate-900 dark:text-white">Grafic Aderență</p>
+          </button>
+        </div>
+
+        {/* OPTIONAL EXPANDED ADHERENCE CHART */}
+        {showAdherenceChart && (
+          <div className="animate-in fade-in duration-200">
+            <WeeklyAdherenceChart currentGoal={goal} />
+          </div>
+        )}
+
+        {/* MAIN CALORIES & MACROS SUMMARY CARD */}
+        <div className="p-6 rounded-[2.5rem] bg-gradient-to-br from-slate-900 via-zinc-950 to-slate-900 text-white border border-slate-800 shadow-2xl relative overflow-hidden">
+          <div className="relative flex flex-col md:flex-row md:items-center justify-between gap-6">
+            {/* Calories Main Gauge */}
+            <div className="flex-1">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                    Bilanț Caloric Zilnic
+                  </span>
+                  <div className="flex items-baseline gap-2 mt-0.5">
+                    <h2 className="text-4xl font-black tracking-tight text-white">
+                      {totals.calories}
+                    </h2>
+                    <span className="text-sm font-semibold text-slate-400">
+                      / {dayLog.targetCalories || goal.calories} kcal
+                    </span>
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <span
+                    className={`inline-flex items-center gap-1 px-3 py-1 rounded-xl text-xs font-black ${
+                      calorieDiff >= 0
+                        ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                        : "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                    }`}
+                  >
+                    <Flame className="size-3.5" />
+                    {calorieDiff >= 0 ? `${calorieDiff} kcal rămase` : `${Math.abs(calorieDiff)} kcal surplus`}
+                  </span>
+                </div>
               </div>
-              <div className="w-full bg-slate-200 dark:bg-zinc-800 rounded-full h-1.5 mt-3 overflow-hidden">
+
+              {/* Progress Bar */}
+              <div className="w-full h-3 bg-zinc-800 rounded-full overflow-hidden p-0.5 mt-3">
                 <div
-                  className="bg-blue-600 dark:bg-orange-500 h-full rounded-full"
-                  style={{ width: `${Math.min(100, (totalProtein / goal.protein) * 100)}%` }}
+                  className="h-full bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 rounded-full transition-all duration-500"
+                  style={{ width: `${caloriePercent}%` }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* 4 MACRO CARDS */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 pt-6 border-t border-white/10">
+            {/* Protein */}
+            <div className="p-3.5 rounded-2xl bg-blue-500/10 border border-blue-500/20">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black uppercase tracking-wider text-blue-400">
+                  Proteine
+                </span>
+                <span className="text-xs font-bold text-slate-300">
+                  {Math.round((totals.protein / (dayLog.targetProtein || goal.protein)) * 100)}%
+                </span>
+              </div>
+              <p className="text-2xl font-black text-white mt-1">
+                {totals.protein}g
+              </p>
+              <p className="text-[11px] text-slate-400">
+                țintă: {dayLog.targetProtein || goal.protein}g
+              </p>
+              <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden mt-2">
+                <div
+                  className="h-full bg-blue-500 rounded-full"
+                  style={{
+                    width: `${Math.min(
+                      100,
+                      Math.round((totals.protein / (dayLog.targetProtein || goal.protein)) * 100)
+                    )}%`,
+                  }}
                 />
               </div>
             </div>
 
             {/* Carbs */}
-            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/5 flex flex-col justify-between">
-              <div>
-                <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 dark:text-zinc-500">
+            <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/20">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black uppercase tracking-wider text-amber-400">
                   Carbohidrați
-                </p>
-                <p className="text-xl font-black text-amber-600 dark:text-amber-400 mt-1">
-                  {totalCarbs.toFixed(0)}g
-                </p>
-                <p className="text-[10px] font-bold text-slate-400 dark:text-zinc-500">
-                  țintă {goal.carbs}g
-                </p>
+                </span>
+                <span className="text-xs font-bold text-slate-300">
+                  {Math.round((totals.carbs / (dayLog.targetCarbs || goal.carbs)) * 100)}%
+                </span>
               </div>
-              <div className="w-full bg-slate-200 dark:bg-zinc-800 rounded-full h-1.5 mt-3 overflow-hidden">
+              <p className="text-2xl font-black text-white mt-1">
+                {totals.carbs}g
+              </p>
+              <p className="text-[11px] text-slate-400">
+                țintă: {dayLog.targetCarbs || goal.carbs}g
+              </p>
+              <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden mt-2">
                 <div
-                  className="bg-amber-500 h-full rounded-full"
-                  style={{ width: `${Math.min(100, (totalCarbs / goal.carbs) * 100)}%` }}
+                  className="h-full bg-amber-500 rounded-full"
+                  style={{
+                    width: `${Math.min(
+                      100,
+                      Math.round((totals.carbs / (dayLog.targetCarbs || goal.carbs)) * 100)
+                    )}%`,
+                  }}
                 />
               </div>
             </div>
 
             {/* Fats */}
-            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/5 flex flex-col justify-between">
-              <div>
-                <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 dark:text-zinc-500">
+            <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/20">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black uppercase tracking-wider text-rose-400">
                   Grăsimi
-                </p>
-                <p className="text-xl font-black text-rose-600 dark:text-rose-400 mt-1">
-                  {totalFats.toFixed(0)}g
-                </p>
-                <p className="text-[10px] font-bold text-slate-400 dark:text-zinc-500">
-                  țintă {goal.fats}g
-                </p>
-              </div>
-              <div className="w-full bg-slate-200 dark:bg-zinc-800 rounded-full h-1.5 mt-3 overflow-hidden">
-                <div
-                  className="bg-rose-500 h-full rounded-full"
-                  style={{ width: `${Math.min(100, (totalFats / goal.fats) * 100)}%` }}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Meals Log List */}
-        <div className="space-y-4">
-          <div className="flex justify-between items-center px-1">
-            <h3 className="text-slate-400 dark:text-zinc-500 text-[10px] font-black uppercase tracking-[0.2em]">
-              Mese Înregistrate Astăzi ({dayLog.meals.length})
-            </h3>
-            <button
-              onClick={() => setShowAddModal(true)}
-              className="text-blue-600 dark:text-orange-500 text-[10px] font-black uppercase tracking-wider hover:underline cursor-pointer"
-            >
-              + Adaugă Masă
-            </button>
-          </div>
-
-          {dayLog.meals.map((meal) => (
-            <div
-              key={meal.id}
-              className="flex items-center justify-between p-5 bg-white dark:bg-[#1a1a1a] border border-slate-200/60 dark:border-white/5 rounded-[2rem] shadow-sm hover:shadow-md transition-all group"
-            >
-              <div className="flex items-center gap-4">
-                <div className="p-3.5 rounded-2xl bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300">
-                  <Utensils className="size-5" />
-                </div>
-                <div>
-                  <h4 className="font-black text-slate-950 dark:text-white text-base leading-tight">
-                    {meal.name}
-                  </h4>
-                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-zinc-500 mt-1">
-                    {meal.time} • P: {meal.protein}g | C: {meal.carbs}g | G: {meal.fats}g
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <span className="font-black text-slate-900 dark:text-white text-base">
-                  {meal.calories} kcal
                 </span>
-                <button
-                  onClick={() => removeMeal(meal.id)}
-                  className="p-2 text-slate-300 hover:text-red-500 dark:text-zinc-700 dark:hover:text-red-400 transition-colors cursor-pointer"
-                >
-                  <Trash2 className="size-4" />
-                </button>
+                <span className="text-xs font-bold text-slate-300">
+                  {Math.round((totals.fats / (dayLog.targetFats || goal.fats)) * 100)}%
+                </span>
               </div>
-            </div>
-          ))}
-
-          {dayLog.meals.length === 0 && (
-            <div className="text-center py-16 bg-white dark:bg-[#1a1a1a] border border-dashed border-slate-200 dark:border-white/5 rounded-[2.5rem] p-8 flex flex-col items-center">
-              <Utensils className="size-12 text-slate-300 dark:text-zinc-700 mb-4" />
-              <p className="text-xs font-black uppercase tracking-widest text-slate-400 dark:text-zinc-500">
-                Nicio masă adăugată pentru astăzi
+              <p className="text-2xl font-black text-white mt-1">
+                {totals.fats}g
               </p>
-              <button
-                onClick={() => setShowAddModal(true)}
-                className="mt-4 px-6 py-3 rounded-xl bg-blue-600 dark:bg-orange-500 text-white dark:text-black font-black text-[10px] uppercase tracking-wider cursor-pointer"
-              >
-                Înregistrează Prima Masă
-              </button>
-            </div>
-          )}
-        </div>
-      </ProGuard>
-
-      {/* Add Meal Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
-          <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center">
-              <h3 className="text-2xl font-black text-slate-950 dark:text-white uppercase tracking-tight">
-                Adaugă Masă
-              </h3>
-              <button
-                onClick={() => setShowAddModal(false)}
-                className="p-2 rounded-full bg-slate-100 dark:bg-zinc-800 text-slate-400 hover:text-slate-600 cursor-pointer"
-              >
-                <X className="size-5" />
-              </button>
-            </div>
-
-            {/* Quick Presets */}
-            <div className="space-y-2">
-              <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-zinc-500">
-                Preseturi Rapide de Hipertrofie
-              </span>
-              <div className="grid grid-cols-1 gap-2">
-                {PRESET_MEALS.map((p, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => applyPreset(p)}
-                    className="flex justify-between items-center p-3 rounded-xl bg-slate-50 dark:bg-zinc-800/60 hover:bg-blue-50 dark:hover:bg-zinc-800 text-left transition-colors cursor-pointer border border-slate-100 dark:border-transparent"
-                  >
-                    <div>
-                      <p className="text-xs font-black text-slate-900 dark:text-white">{p.name}</p>
-                      <p className="text-[10px] font-bold text-slate-400 dark:text-zinc-400">
-                        {p.protein}g Proteine • {p.carbs}g Carbs
-                      </p>
-                    </div>
-                    <span className="text-xs font-black text-blue-600 dark:text-orange-400">
-                      {p.calories} kcal
-                    </span>
-                  </button>
-                ))}
+              <p className="text-[11px] text-slate-400">
+                țintă: {dayLog.targetFats || goal.fats}g
+              </p>
+              <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden mt-2">
+                <div
+                  className="h-full bg-rose-500 rounded-full"
+                  style={{
+                    width: `${Math.min(
+                      100,
+                      Math.round((totals.fats / (dayLog.targetFats || goal.fats)) * 100)
+                    )}%`,
+                  }}
+                />
               </div>
             </div>
 
-            {/* Manual Form */}
-            <form onSubmit={handleManualAdd} className="space-y-4 pt-2 border-t border-slate-100 dark:border-zinc-800">
-              <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-zinc-500">
-                Sau Introdu Manual
-              </span>
-              <div>
-                <input
-                  type="text"
-                  placeholder="Denumire masă (ex: Shake, Friptură)"
-                  value={mealName}
-                  onChange={(e) => setMealName(e.target.value)}
-                  required
-                  className="w-full p-4 rounded-2xl bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-white/10 text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-600 dark:focus:ring-orange-500"
+            {/* Fiber */}
+            <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400">
+                  Fibre Dietetice
+                </span>
+                <span className="text-xs font-bold text-slate-300">
+                  {Math.round((totals.fiber / (dayLog.targetFiber || goal.fiber || 38)) * 100)}%
+                </span>
+              </div>
+              <p className="text-2xl font-black text-white mt-1">
+                {totals.fiber}g
+              </p>
+              <p className="text-[11px] text-slate-400">
+                țintă: {dayLog.targetFiber || goal.fiber || 38}g
+              </p>
+              <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden mt-2">
+                <div
+                  className="h-full bg-emerald-500 rounded-full"
+                  style={{
+                    width: `${Math.min(
+                      100,
+                      Math.round((totals.fiber / (dayLog.targetFiber || goal.fiber || 38)) * 100)
+                    )}%`,
+                  }}
                 />
               </div>
+            </div>
+          </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <input
-                  type="number"
-                  placeholder="Calorii (kcal)"
-                  value={calories}
-                  onChange={(e) => setCalories(e.target.value)}
-                  className="p-3 rounded-xl bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-white/10 text-xs font-bold"
-                />
-                <input
-                  type="number"
-                  placeholder="Proteine (g)"
-                  value={protein}
-                  onChange={(e) => setProtein(e.target.value)}
-                  className="p-3 rounded-xl bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-white/10 text-xs font-bold"
-                />
-                <input
-                  type="number"
-                  placeholder="Carbohidrați (g)"
-                  value={carbs}
-                  onChange={(e) => setCarbs(e.target.value)}
-                  className="p-3 rounded-xl bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-white/10 text-xs font-bold"
-                />
-                <input
-                  type="number"
-                  placeholder="Grăsimi (g)"
-                  value={fats}
-                  onChange={(e) => setFats(e.target.value)}
-                  className="p-3 rounded-xl bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-white/10 text-xs font-bold"
-                />
-              </div>
-
-              <button
-                type="submit"
-                className="w-full py-4 rounded-2xl bg-blue-600 dark:bg-orange-500 text-white dark:text-black font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-600/30 cursor-pointer"
-              >
-                Salvează Masă
-              </button>
-            </form>
+          {/* MICRONUTRIENTS STRIP */}
+          <div className="flex items-center justify-between pt-4 mt-4 border-t border-white/5 text-xs text-slate-400">
+            <span>Sodiu total: <strong className="text-white">{totals.sodium} mg</strong></span>
+            <span>Aport Hidric: <strong className="text-cyan-400">{dayLog.waterMl} ml</strong></span>
+            <span>Alimente înregistrate: <strong className="text-white">{dayLog.meals.length}</strong></span>
           </div>
         </div>
-      )}
 
-      {/* Goal Config Modal */}
-      {showGoalModal && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
-          <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 w-full max-w-sm rounded-[2.5rem] p-8 shadow-2xl space-y-6">
-            <div className="flex justify-between items-center">
-              <h3 className="text-xl font-black text-slate-950 dark:text-white uppercase tracking-tight">
-                Obiectiv Nutrițional
+        {/* HYDRATION TRACKER CARD */}
+        <HydrationCard
+          waterMl={dayLog.waterMl}
+          targetWaterMl={dayLog.targetWaterMl || goal.waterMl || 3500}
+          onUpdateWater={handleUpdateWater}
+        />
+
+        {/* STRUCTURED MEAL SLOTS SECTION */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-black text-slate-900 dark:text-white tracking-tight">
+                Mese Structurate pe Categorii
               </h3>
-              <button
-                onClick={() => setShowGoalModal(false)}
-                className="p-2 rounded-full bg-slate-100 dark:bg-zinc-800 text-slate-400 hover:text-slate-600 cursor-pointer"
-              >
-                <X className="size-5" />
-              </button>
+              <p className="text-xs text-slate-500 dark:text-zinc-400">
+                Organizează nutriția conform orelor de antrenament și sinteză proteică
+              </p>
             </div>
+          </div>
 
-            <div className="space-y-3">
-              {[
-                { id: "hypertrophy", label: "Masă Musculară (Hipertrofie)", desc: "Surplus caloric moderat, proteine mari" },
-                { id: "maintenance", label: "Recompoziție Corporală", desc: "Mentenanță calorică, ardere grăsimi & forță" },
-                { id: "cutting", label: "Definire (Slăbire)", desc: "Deficit controlat, conservare masă musculară" },
-              ].map((opt) => (
-                <button
-                  key={opt.id}
-                  onClick={() => setGoalType(opt.id as any)}
-                  className={`w-full text-left p-4 rounded-2xl border transition-all cursor-pointer flex justify-between items-center ${
-                    goal.type === opt.id
-                      ? "border-blue-600 dark:border-orange-500 bg-blue-50/50 dark:bg-orange-500/10"
-                      : "border-slate-200 dark:border-zinc-800"
-                  }`}
+          <div className="space-y-3">
+            {MEAL_SLOTS.map((slot) => {
+              const Icon = slot.icon;
+              const isCollapsed = !!collapsedSlots[slot.key];
+
+              // Filter meals belonging to this category
+              // Also support legacy items without category by assigning them to 'gustari'
+              const slotMeals = dayLog.meals.filter(
+                (m) => m.category === slot.key || (!m.category && slot.key === "gustari")
+              );
+
+              const slotKcal = slotMeals.reduce((sum, m) => sum + (m.calories || 0), 0);
+              const slotProtein = slotMeals.reduce((sum, m) => sum + (m.protein || 0), 0);
+
+              return (
+                <div
+                  key={slot.key}
+                  className="rounded-[2rem] bg-white dark:bg-zinc-900/90 border border-slate-200 dark:border-white/5 shadow-md overflow-hidden transition-all"
                 >
-                  <div>
-                    <p className="font-black text-xs text-slate-950 dark:text-white uppercase">{opt.label}</p>
-                    <p className="text-[10px] text-slate-500 dark:text-zinc-400 mt-0.5">{opt.desc}</p>
-                  </div>
-                  {goal.type === opt.id && <Check className="size-4 text-blue-600 dark:text-orange-500 shrink-0" />}
-                </button>
-              ))}
-            </div>
+                  {/* Slot Header */}
+                  <div
+                    onClick={() => toggleSlotCollapse(slot.key)}
+                    className="p-4.5 flex items-center justify-between gap-3 cursor-pointer hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors select-none"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="p-3 rounded-2xl bg-orange-500/10 text-orange-500 border border-orange-500/20">
+                        <Icon className="size-5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-base font-black text-slate-900 dark:text-white tracking-tight">
+                            {slot.name}
+                          </h4>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-slate-100 dark:bg-zinc-800 text-slate-500 dark:text-zinc-400">
+                            {slotMeals.length} {slotMeals.length === 1 ? "aliment" : "alimente"}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-400 dark:text-zinc-500 mt-0.5">
+                          {slot.subtitle}
+                        </p>
+                      </div>
+                    </div>
 
-            <button
-              onClick={() => setShowGoalModal(false)}
-              className="w-full py-4 rounded-2xl bg-slate-950 dark:bg-white text-white dark:text-black font-black text-xs uppercase tracking-widest cursor-pointer"
-            >
-              Gata
-            </button>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <p className="text-sm font-black text-slate-900 dark:text-white">
+                          {Math.round(slotKcal)} <span className="text-xs font-normal text-slate-400">kcal</span>
+                        </p>
+                        <p className="text-xs font-black text-blue-500">
+                          {Math.round(slotProtein)}g <span className="text-[10px] font-normal text-slate-400">P</span>
+                        </p>
+                      </div>
+
+                      <div className="p-1 rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-white">
+                        {isCollapsed ? <ChevronDown className="size-5" /> : <ChevronUp className="size-5" />}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Slot Expanded Content */}
+                  {!isCollapsed && (
+                    <div className="px-4.5 pb-4.5 pt-1 border-t border-slate-100 dark:border-white/5 space-y-3">
+                      {/* Logged items in this slot */}
+                      {slotMeals.length > 0 ? (
+                        <div className="space-y-1.5">
+                          {slotMeals.map((item) => (
+                            <div
+                              key={item.id}
+                              className="p-3 rounded-2xl bg-slate-50 dark:bg-zinc-800/40 border border-slate-100 dark:border-white/5 flex items-center justify-between gap-3 group"
+                            >
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <h5 className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                                    {item.name}
+                                  </h5>
+                                  {item.time && (
+                                    <span className="text-[10px] text-slate-400 dark:text-zinc-500">
+                                      {item.time}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
+                                  <span><strong>{item.calories}</strong> kcal</span>
+                                  <span>P: <strong className="text-blue-500">{item.protein}g</strong></span>
+                                  <span>C: <strong>{item.carbs}g</strong></span>
+                                  <span>G: <strong>{item.fats}g</strong></span>
+                                  {item.fiber ? <span>F: <strong>{item.fiber}g</strong></span> : null}
+                                </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveMealItem(item.id)}
+                                className="p-2 rounded-xl text-slate-400 hover:text-red-500 hover:bg-red-500/10 cursor-pointer transition-colors"
+                                title="Șterge aliment"
+                              >
+                                <Trash2 className="size-4" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-slate-400 dark:text-zinc-500 italic py-2">
+                          Niciun aliment adăugat încă în {slot.name}.
+                        </p>
+                      )}
+
+                      {/* Add Buttons for this slot */}
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => openFoodSearchForSlot(slot.key)}
+                          className="flex-1 py-2.5 px-4 rounded-xl bg-orange-500/10 hover:bg-orange-500/20 border border-orange-500/30 text-orange-500 dark:text-orange-400 text-xs font-black tracking-wide flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition-all"
+                        >
+                          <Plus className="size-3.5 stroke-[3]" />
+                          <span>Adaugă Aliment în {slot.name}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => openAiMealForSlot(slot.key)}
+                          className="py-2.5 px-3 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 text-purple-500 dark:text-purple-400 text-xs font-black flex items-center justify-center gap-1 cursor-pointer active:scale-95 transition-all"
+                          title="Generează cu AI"
+                        >
+                          <Sparkles className="size-3.5" />
+                          <span className="hidden sm:inline">AI Chef</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
-      )}
-    </div>
+
+        {/* MODALS */}
+        <FoodSearchModal
+          isOpen={showFoodModal}
+          onClose={() => setShowFoodModal(false)}
+          defaultCategory={selectedSlotForAdd}
+          onAddMealItem={handleAddMealItem}
+        />
+
+        <MetabolicWizardModal
+          isOpen={showWizardModal}
+          onClose={() => setShowWizardModal(false)}
+          currentGoal={goal}
+          onApplyGoal={handleApplyNewGoal}
+        />
+
+        <AiMealModal
+          isOpen={showAiMealModal}
+          onClose={() => setShowAiMealModal(false)}
+          defaultCategory={selectedSlotForAdd}
+          onAddMealItem={handleAddMealItem}
+          targetCalories={goal.calories}
+          targetProtein={goal.protein}
+        />
+      </div>
+    </ProGuard>
   );
 };

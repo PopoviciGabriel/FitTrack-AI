@@ -78,14 +78,23 @@ export const RoutinesView: React.FC<RoutinesViewProps> = ({
   }, []);
 
   useEffect(() => {
+    const handleRoutinesUpdated = () => {
+      const saved = localStorage.getItem("fittrack_routines_v1");
+      if (saved) {
+        try {
+          setRoutines(JSON.parse(saved));
+        } catch {}
+      }
+    };
+    window.addEventListener("routines_updated", handleRoutinesUpdated);
+    return () => window.removeEventListener("routines_updated", handleRoutinesUpdated);
+  }, []);
+
+  useEffect(() => {
     localStorage.setItem("fittrack_routines_v1", JSON.stringify(routines));
   }, [routines]);
 
   const handleCreateRoutine = () => {
-    if (!isPro && routines.length >= 2) {
-      onUpgradeClick();
-      return;
-    }
     if (!newTitle.trim() || selectedExercises.length === 0) return;
 
     const newRoutine: RoutineTemplate = {
@@ -108,67 +117,33 @@ export const RoutinesView: React.FC<RoutinesViewProps> = ({
     setRoutines(routines.filter((r) => r.id !== id));
   };
 
-  const isLocked = (index: number) => {
-    return !isPro && index >= 2;
-  };
-
   return (
     <div className="space-y-6 pb-24 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <header className="py-8 px-6 sticky top-0 bg-[#f4f7f0] dark:bg-[#0A0A0A] z-20 border-b border-slate-200 dark:border-white/5 -mx-4 transition-all flex justify-between items-center">
+      <header className="pt-[calc(env(safe-area-inset-top)+1rem)] pb-4 px-6 sticky top-0 bg-[#f4f7f0] dark:bg-[#0A0A0A] z-20 border-b border-slate-200 dark:border-white/5 -mx-4 transition-all flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-black tracking-tighter text-slate-950 dark:text-zinc-50 uppercase leading-none">
             Rutine.
           </h1>
           <p className="text-blue-600 dark:text-orange-500 text-[10px] font-black uppercase tracking-[0.4em] mt-1.5 leading-none">
-            Template-uri & Split-uri
+            Template-uri & Split-uri • Nelimitat
           </p>
         </div>
 
         <button
-          onClick={() => {
-            if (!isPro && routines.length >= 2) {
-              onUpgradeClick();
-            } else {
-              setShowCreateModal(true);
-            }
-          }}
-          className="bg-blue-600 dark:bg-orange-500 hover:bg-blue-700 dark:hover:bg-orange-600 text-white dark:text-black p-3.5 rounded-2xl transition-all active:scale-95 shadow-lg shadow-blue-600/20 cursor-pointer"
+          onClick={() => setShowCreateModal(true)}
+          className="bg-blue-600 dark:bg-orange-500 hover:bg-blue-700 dark:hover:bg-orange-600 text-white dark:text-black p-3.5 rounded-2xl shadow-lg shadow-blue-600/20 cursor-pointer active:scale-95 transition-transform duration-150"
         >
           <Plus className="size-5" />
         </button>
       </header>
 
-      {/* Tier Notice banner */}
-      {!isPro && (
-        <div className="p-4 rounded-2xl bg-blue-50/60 dark:bg-white/[0.03] border border-blue-100 dark:border-white/5 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <Sparkles className="size-4 text-blue-600 dark:text-orange-400 shrink-0" />
-            <span className="text-xs font-bold text-slate-700 dark:text-zinc-300">
-              Free: Max 2 rutine. Deblochează rutine nelimitate cu PRO.
-            </span>
-          </div>
-          <button
-            onClick={onUpgradeClick}
-            className="text-[10px] font-black uppercase tracking-wider text-blue-600 dark:text-orange-400 hover:underline cursor-pointer shrink-0 ml-2"
-          >
-            Upgrade
-          </button>
-        </div>
-      )}
-
       {/* Routine Cards List */}
       <div className="space-y-4">
-        {routines.map((r, idx) => {
-          const locked = isLocked(idx);
-
+        {routines.map((r) => {
           return (
             <div
               key={r.id}
-              className={`p-6 sm:p-7 rounded-[2.5rem] border transition-all relative overflow-hidden ${
-                locked
-                  ? "bg-slate-100/70 dark:bg-zinc-900/40 border-slate-200/80 dark:border-white/5 opacity-75"
-                  : "bg-white dark:bg-[#1a1a1a] border-slate-200/70 dark:border-white/5 shadow-sm hover:shadow-md"
-              }`}
+              className="p-6 sm:p-7 rounded-[2.5rem] border transition-all relative overflow-hidden bg-white dark:bg-[#1a1a1a] border-slate-200/70 dark:border-white/5 shadow-sm hover:shadow-md"
             >
               <div className="flex justify-between items-start mb-4">
                 <div>
@@ -183,18 +158,13 @@ export const RoutinesView: React.FC<RoutinesViewProps> = ({
                   </p>
                 </div>
 
-                {locked ? (
-                  <div className="p-2.5 rounded-xl bg-slate-200 dark:bg-zinc-800 text-slate-600 dark:text-zinc-400">
-                    <Lock className="size-4" />
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => deleteRoutine(r.id)}
-                    className="p-2 text-slate-300 hover:text-red-500 transition-colors cursor-pointer"
-                  >
-                    <Trash2 className="size-4" />
-                  </button>
-                )}
+                <button
+                  onClick={() => deleteRoutine(r.id)}
+                  className="p-2 text-slate-300 hover:text-red-500 transition-colors cursor-pointer"
+                  title="Șterge rutina"
+                >
+                  <Trash2 className="size-4" />
+                </button>
               </div>
 
               {/* Exercises in routine */}
@@ -215,23 +185,13 @@ export const RoutinesView: React.FC<RoutinesViewProps> = ({
               </div>
 
               {/* Action Button */}
-              {locked ? (
-                <button
-                  onClick={onUpgradeClick}
-                  className="w-full py-3.5 rounded-2xl bg-slate-200 dark:bg-zinc-800 text-slate-800 dark:text-zinc-200 font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer active:scale-98"
-                >
-                  <Lock className="size-3.5" />
-                  <span>Deblochează cu PRO (19.99 RON)</span>
-                </button>
-              ) : (
-                <button
-                  onClick={() => onStartWorkoutFromRoutine(r)}
-                  className="w-full py-3.5 rounded-2xl bg-blue-600 dark:bg-orange-500 hover:bg-blue-700 dark:hover:bg-orange-600 text-white dark:text-black font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20 active:scale-98 cursor-pointer transition-all"
-                >
-                  <Play className="size-4 fill-current" />
-                  <span>Începe Antrenamentul</span>
-                </button>
-              )}
+              <button
+                onClick={() => onStartWorkoutFromRoutine(r)}
+                className="w-full py-3.5 rounded-2xl bg-blue-600 dark:bg-orange-500 hover:bg-blue-700 dark:hover:bg-orange-600 text-white dark:text-black font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20 active:scale-98 cursor-pointer transition-all"
+              >
+                <Play className="size-4 fill-current" />
+                <span>Începe Antrenamentul</span>
+              </button>
             </div>
           );
         })}

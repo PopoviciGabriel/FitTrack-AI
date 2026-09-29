@@ -52,7 +52,7 @@ export const AiCoachView: React.FC<AiCoachViewProps> = ({ workouts, onUpgradeCli
 
   return (
     <div className="space-y-6 pb-24 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <header className="py-8 px-6 sticky top-0 bg-[#f4f7f0] dark:bg-[#0A0A0A] z-20 border-b border-slate-200 dark:border-white/5 -mx-4 transition-all flex justify-between items-center">
+      <header className="pt-[calc(env(safe-area-inset-top)+1rem)] pb-4 px-6 sticky top-0 bg-[#f4f7f0] dark:bg-[#0A0A0A] z-20 border-b border-slate-200 dark:border-white/5 -mx-4 transition-all flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-black tracking-tighter text-slate-950 dark:text-zinc-50 uppercase leading-none">
             AI Coach.
@@ -65,7 +65,7 @@ export const AiCoachView: React.FC<AiCoachViewProps> = ({ workouts, onUpgradeCli
         <button
           onClick={runAnalysis}
           disabled={loading || workouts.length === 0}
-          className="p-3 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl text-blue-600 dark:text-orange-500 hover:scale-105 active:scale-95 transition-all cursor-pointer disabled:opacity-40 shadow-sm"
+          className="p-3 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl text-blue-600 dark:text-orange-500 cursor-pointer disabled:opacity-40 shadow-sm active:scale-95 transition-transform duration-150"
           title="Reanalizează"
         >
           <RefreshCw className={`size-5 ${loading ? "animate-spin" : ""}`} />

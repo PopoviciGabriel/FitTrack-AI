@@ -7,11 +7,9 @@ import {
   FileSpreadsheet, 
   FileText, 
   CheckCircle2, 
-  ShieldCheck,
   RefreshCw 
 } from "lucide-react";
 import { Workout, ProgressEntry } from "../types";
-import { PurchaseService } from "../services/purchaseService";
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -19,7 +17,7 @@ interface ExportModalProps {
   workouts: Workout[];
   progress: ProgressEntry[];
   onImportData: (workouts: Workout[], progress: ProgressEntry[]) => void;
-  onUpgradeClick: () => void;
+  onUpgradeClick?: () => void;
 }
 
 export const ExportModal: React.FC<ExportModalProps> = ({
@@ -28,19 +26,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   workouts,
   progress,
   onImportData,
-  onUpgradeClick,
 }) => {
   const [syncing, setSyncing] = useState(false);
   const [synced, setSynced] = useState(false);
-  const isPro = PurchaseService.isPro();
 
   if (!isOpen) return null;
 
   const downloadJSON = () => {
-    if (!isPro) {
-      onUpgradeClick();
-      return;
-    }
     const data = {
       version: "2.0",
       exportDate: new Date().toISOString(),
@@ -57,10 +49,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   };
 
   const downloadCSV = () => {
-    if (!isPro) {
-      onUpgradeClick();
-      return;
-    }
     let csv = "Data,Antrenament,Exercițiu,Set,Greutate (kg),Repetări,RPE,Completat\n";
 
     workouts.forEach((w) => {
@@ -81,10 +69,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!isPro) {
-      onUpgradeClick();
-      return;
-    }
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -108,10 +92,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   };
 
   const triggerCloudSync = () => {
-    if (!isPro) {
-      onUpgradeClick();
-      return;
-    }
     setSyncing(true);
     setTimeout(() => {
       setSyncing(false);
@@ -121,123 +101,126 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
-      <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl space-y-6">
-        <div className="flex justify-between items-center">
-          <div>
-            <span className="text-[10px] font-black uppercase tracking-widest text-blue-600 dark:text-orange-500">
-              Cloud & Backup PRO
-            </span>
-            <h3 className="text-2xl font-black text-slate-950 dark:text-white uppercase tracking-tight">
-              Sincronizare & Export
-            </h3>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-full bg-slate-100 dark:bg-zinc-800 text-slate-400 hover:text-slate-600 cursor-pointer"
-          >
-            <X className="size-5" />
-          </button>
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-xs">
+      <div className="relative bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 w-full max-w-md max-h-[90dvh] flex flex-col rounded-[2rem] shadow-2xl overflow-hidden">
+        {/* Close Button with Safe Area */}
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 z-30 p-2 rounded-full bg-slate-100 dark:bg-zinc-800 text-slate-500 hover:text-slate-800 dark:text-zinc-400 dark:hover:text-white transition-colors cursor-pointer"
+          aria-label="Închide"
+        >
+          <X className="size-4 sm:size-5" />
+        </button>
+
+        {/* Compact Header */}
+        <div className="p-5 sm:p-6 pb-3 border-b border-slate-100 dark:border-zinc-800/80 shrink-0 pr-12">
+          <span className="text-[10px] font-black uppercase tracking-widest text-blue-600 dark:text-orange-500">
+            Cloud & Backup Gratuit
+          </span>
+          <h3 className="text-xl sm:text-2xl font-black text-slate-950 dark:text-white uppercase tracking-tight">
+            Sincronizare & Export
+          </h3>
         </div>
 
-        {/* Cloud Sync Status */}
-        <div className="p-6 rounded-2xl bg-blue-50/70 dark:bg-white/[0.02] border border-blue-100 dark:border-white/5 space-y-3">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-3">
-              <div className="p-3 rounded-xl bg-blue-600/10 dark:bg-orange-500/10 text-blue-600 dark:text-orange-500">
-                <Cloud className="size-6" />
+        {/* Scrollable Interior Container */}
+        <div className="p-5 sm:p-6 space-y-4 overflow-y-auto flex-1 overscroll-contain pr-1 scrollbar-none [&::-webkit-scrollbar]:hidden">
+          {/* Cloud Sync Status */}
+          <div className="p-4 sm:p-5 rounded-2xl bg-blue-50/70 dark:bg-white/[0.02] border border-blue-100 dark:border-white/5 space-y-3">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-blue-600/10 dark:bg-orange-500/10 text-blue-600 dark:text-orange-500">
+                  <Cloud className="size-5 sm:size-6" />
+                </div>
+                <div>
+                  <h4 className="font-black text-xs sm:text-sm text-slate-900 dark:text-white uppercase">
+                    FitTrack Cloud Sync
+                  </h4>
+                  <p className="text-[10px] font-bold text-slate-400 dark:text-zinc-500">
+                    Criptat & Sincronizat automat
+                  </p>
+                </div>
               </div>
-              <div>
-                <h4 className="font-black text-sm text-slate-900 dark:text-white uppercase">
-                  FitTrack Cloud Sync
-                </h4>
-                <p className="text-[10px] font-bold text-slate-400 dark:text-zinc-500">
-                  {isPro ? "Criptat & Sincronizat automat" : "Disponibil în FitTrack PRO"}
-                </p>
-              </div>
+
+              <button
+                onClick={triggerCloudSync}
+                disabled={syncing}
+                className="p-2.5 rounded-xl bg-blue-600 dark:bg-orange-500 text-white dark:text-black hover:scale-105 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                title="Sincronizează acum"
+              >
+                <RefreshCw className={`size-4 ${syncing ? "animate-spin" : ""}`} />
+              </button>
             </div>
+
+            {synced && (
+              <div className="flex items-center gap-2 text-xs font-bold text-green-600 dark:text-green-400">
+                <CheckCircle2 className="size-4" />
+                <span>Sincronizare în cloud finalizată!</span>
+              </div>
+            )}
+          </div>
+
+          {/* Export options */}
+          <div className="space-y-2.5 pt-1">
+            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+              Exportă Datele Tale
+            </span>
 
             <button
-              onClick={triggerCloudSync}
-              disabled={syncing}
-              className="p-2.5 rounded-xl bg-blue-600 dark:bg-orange-500 text-white dark:text-black hover:scale-105 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
-              title="Sincronizează acum"
+              onClick={downloadCSV}
+              className="w-full flex items-center justify-between p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-white/5 transition-all text-left cursor-pointer"
             >
-              <RefreshCw className={`size-4 ${syncing ? "animate-spin" : ""}`} />
+              <div className="flex items-center gap-3">
+                <FileSpreadsheet className="size-5 text-green-600 shrink-0" />
+                <div>
+                  <p className="font-black text-xs text-slate-900 dark:text-white uppercase">Export CSV (Excel / Sheets)</p>
+                  <p className="text-[10px] text-slate-400">Toate exercițiile, seriile, greutățile și RPE-ul</p>
+                </div>
+              </div>
+              <Download className="size-4 text-slate-400 shrink-0 ml-2" />
             </button>
+
+            <button
+              onClick={downloadJSON}
+              className="w-full flex items-center justify-between p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-white/5 transition-all text-left cursor-pointer"
+            >
+              <div className="flex items-center gap-3">
+                <FileText className="size-5 text-blue-600 shrink-0" />
+                <div>
+                  <p className="font-black text-xs text-slate-900 dark:text-white uppercase">Backup Complet (JSON)</p>
+                  <p className="text-[10px] text-slate-400">Include istoricul antrenamentelor și progresul</p>
+                </div>
+              </div>
+              <Download className="size-4 text-slate-400 shrink-0 ml-2" />
+            </button>
+
+            {/* Import JSON */}
+            <label className="w-full flex items-center justify-between p-3.5 rounded-2xl border border-dashed border-slate-300 dark:border-zinc-700 hover:bg-slate-50 dark:hover:bg-white/5 transition-all text-left cursor-pointer">
+              <div className="flex items-center gap-3">
+                <Upload className="size-5 text-purple-600 shrink-0" />
+                <div>
+                  <p className="font-black text-xs text-slate-900 dark:text-white uppercase">Restaurează din Backup JSON</p>
+                  <p className="text-[10px] text-slate-400">Încarcă un fișier de backup salvat anterior</p>
+                </div>
+              </div>
+              <input
+                type="file"
+                accept=".json"
+                onChange={handleFileUpload}
+                className="hidden"
+              />
+            </label>
           </div>
-
-          {synced && (
-            <div className="flex items-center gap-2 text-xs font-bold text-green-600 dark:text-green-400">
-              <CheckCircle2 className="size-4" />
-              <span>Sincronizare în cloud finalizată!</span>
-            </div>
-          )}
         </div>
 
-        {/* Export options */}
-        <div className="space-y-3">
-          <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-            Exportă Datele Tale
-          </span>
-
+        {/* Sticky Bottom Footer: Clean close button, no paywall */}
+        <div className="p-4 bg-white/95 dark:bg-zinc-900/95 border-t border-slate-100 dark:border-zinc-800 shrink-0">
           <button
-            onClick={downloadCSV}
-            className="w-full flex items-center justify-between p-4 rounded-2xl border border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-white/5 transition-all text-left cursor-pointer"
+            onClick={onClose}
+            className="w-full py-3.5 rounded-2xl bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-200 font-black text-xs uppercase tracking-widest hover:bg-slate-200 dark:hover:bg-zinc-700 transition-all cursor-pointer text-center"
           >
-            <div className="flex items-center gap-3">
-              <FileSpreadsheet className="size-5 text-green-600" />
-              <div>
-                <p className="font-black text-xs text-slate-900 dark:text-white uppercase">Export CSV (Excel / Sheets)</p>
-                <p className="text-[10px] text-slate-400">Toate exercițiile, seriile, greutățile și RPE-ul</p>
-              </div>
-            </div>
-            <Download className="size-4 text-slate-400" />
+            Închide
           </button>
-
-          <button
-            onClick={downloadJSON}
-            className="w-full flex items-center justify-between p-4 rounded-2xl border border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-white/5 transition-all text-left cursor-pointer"
-          >
-            <div className="flex items-center gap-3">
-              <FileText className="size-5 text-blue-600" />
-              <div>
-                <p className="font-black text-xs text-slate-900 dark:text-white uppercase">Backup Complet (JSON)</p>
-                <p className="text-[10px] text-slate-400">Include istoricul antrenamentelor și progresul în greutate</p>
-              </div>
-            </div>
-            <Download className="size-4 text-slate-400" />
-          </button>
-
-          {/* Import JSON */}
-          <label className="w-full flex items-center justify-between p-4 rounded-2xl border border-dashed border-slate-300 dark:border-zinc-700 hover:bg-slate-50 dark:hover:bg-white/5 transition-all text-left cursor-pointer">
-            <div className="flex items-center gap-3">
-              <Upload className="size-5 text-purple-600" />
-              <div>
-                <p className="font-black text-xs text-slate-900 dark:text-white uppercase">Restaurează din Backup JSON</p>
-                <p className="text-[10px] text-slate-400">Încarcă un fișier de backup salvat anterior</p>
-              </div>
-            </div>
-            <input
-              type="file"
-              accept=".json"
-              onChange={handleFileUpload}
-              className="hidden"
-            />
-          </label>
         </div>
-
-        {!isPro && (
-          <button
-            onClick={() => {
-              onClose();
-              onUpgradeClick();
-            }}
-            className="w-full py-4 rounded-2xl bg-blue-600 dark:bg-orange-500 text-white dark:text-black font-black text-xs uppercase tracking-widest shadow-lg cursor-pointer"
-          >
-            Deblochează Backup & Export (19.99 RON)
-          </button>
-        )}
       </div>
     </div>
   );

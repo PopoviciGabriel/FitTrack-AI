@@ -1,7 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
 @import "tailwindcss";
 
-/* ACEASTA ESTE LINIA CARE REPARĂ TOTUL PENTRU TAILWIND v4 */
 @custom-variant dark (&:is(.dark *));
 
 @theme {
@@ -9,30 +8,64 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
-@layer base {
-  body {
-    @apply antialiased transition-all duration-700 ease-in-out;
-    overflow-x: hidden;
-  }
-
-  .dark-bg-mesh {
-    background-color: #000000;
-    background-image: 
-      radial-gradient(at 0% 0%, rgba(249, 115, 22, 0.1) 0px, transparent 50%),
-      radial-gradient(at 100% 100%, rgba(249, 115, 22, 0.08) 0px, transparent 50%),
-      radial-gradient(at 50% 50%, rgba(15, 15, 15, 0.5) 0px, transparent 100%);
-  }
+/* Resetare completă a fundalului și eliminare umbre/vignete iOS */
+html {
+  background: #000000 !important;
+  background-color: #000000 !important;
+  color: #ffffff;
+  height: 100%;
+  overscroll-behavior: none !important;
+  -webkit-overflow-scrolling: touch;
 }
 
-/* Hide scrollbar for Chrome, Safari and Opera */
+body {
+  background: #000000 !important;
+  background-color: #000000 !important;
+  min-height: 100%;
+  min-height: -webkit-fill-available;
+  margin: 0;
+  padding: 0;
+  overscroll-behavior-y: none !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  -webkit-touch-callout: none !important;
+  -webkit-tap-highlight-color: transparent !important;
+  touch-action: manipulation;
+}
+
+#root {
+  min-height: 100vh;
+  background: #000000 !important;
+  background-color: #000000 !important;
+}
+
+/* Eliminare totală scrollbar */
+* {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
+  box-shadow: none;
+  /* Previne umbre accidentale pe containere mari */
+}
+
+*::-webkit-scrollbar {
+  display: none !important;
+  width: 0px !important;
+  height: 0px !important;
+  background: transparent !important;
+}
+
 .no-scrollbar::-webkit-scrollbar {
-  display: none;
+  display: none !important;
 }
 
-/* Hide scrollbar for IE, Edge and Firefox */
 .no-scrollbar {
-  -ms-overflow-style: none;  /* IE and Edge */
-  scrollbar-width: none;  /* Firefox */
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
+}
+
+/* Forțăm fundal negru curat fără niciun gradient de fundal */
+.dark-bg-mesh {
+  background: #000000 !important;
 }
 
 .pb-safe {

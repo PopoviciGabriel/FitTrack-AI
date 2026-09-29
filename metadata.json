@@ -1,6 +1,6 @@
 {
-  "name": "FitTrack Pro",
-  "description": "Aplicație comercială de fitness & hipertrofie: antrenamente, nutriție macro, analize AI și progressive overload.",
+  "name": "FitTrack",
+  "description": "Aplicație de fitness & hipertrofie: antrenamente, nutriție macro, analize AI și progressive overload.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
