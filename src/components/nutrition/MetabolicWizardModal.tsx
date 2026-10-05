@@ -31,7 +31,7 @@ export const MetabolicWizardModal: React.FC<MetabolicWizardModalProps> = ({
   const [weightKg, setWeightKg] = useState<number>(80);
   const [heightCm, setHeightCm] = useState<number>(180);
   const [activityLevel, setActivityLevel] = useState<
-    "sedentary" | "light" | "moderate" | "active" | "very_active"
+    "sedentary" | "light" | "moderate" | "active"
   >("moderate");
   const [goalType, setGoalType] = useState<"hypertrophy" | "maintenance" | "cutting">(
     currentGoal.type || "hypertrophy"
@@ -54,7 +54,6 @@ export const MetabolicWizardModal: React.FC<MetabolicWizardModalProps> = ({
       light: 1.375,
       moderate: 1.55,
       active: 1.725,
-      very_active: 1.9,
     };
     const tdee = Math.round(bmr * activityMultipliers[activityLevel]);
 
@@ -239,20 +238,19 @@ export const MetabolicWizardModal: React.FC<MetabolicWizardModalProps> = ({
             <h4 className="text-xs font-black uppercase tracking-widest text-slate-400 dark:text-zinc-500 mb-2">
               2. Nivel de Activitate & Cheltuială Calorică
             </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {[
                 { key: "sedentary", title: "Sedentar (x1.2)", desc: "Muncă de birou, fără antrenament" },
                 { key: "light", title: "Ușor Activ (x1.375)", desc: "1-2 antrenamente ușoare / săptămână" },
                 { key: "moderate", title: "Moderat Activ (x1.55)", desc: "3-5 antrenamente de forță / săpt" },
-                { key: "active", title: "Foarte Activ (x1.725)", desc: "6-7 antrenamente grele / săpt" },
-                { key: "very_active", title: "Extrem de Activ (x1.9)", desc: "Antrenamente intense + muncă fizică" },
+                { key: "active", title: "Foarte Activ (x1.725)", desc: "6+ antrenamente grele / muncă fizică" },
               ].map((lvl) => (
                 <div
                   key={lvl.key}
                   onClick={() => setActivityLevel(lvl.key as typeof activityLevel)}
                   className={`p-3 rounded-2xl border cursor-pointer transition-all ${
                     activityLevel === lvl.key
-                      ? "bg-orange-500/10 border-orange-500 text-slate-900 dark:text-white"
+                      ? "bg-orange-500/10 border-orange-500 text-slate-900 dark:text-white shadow-xs"
                       : "bg-slate-50 dark:bg-zinc-900/60 border-slate-200 dark:border-white/5 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800"
                   }`}
                 >
@@ -329,50 +327,53 @@ export const MetabolicWizardModal: React.FC<MetabolicWizardModalProps> = ({
           </div>
 
           {/* Results Summary Box */}
-          <div className="p-4 rounded-3xl bg-slate-900 dark:bg-zinc-900 border border-slate-700 dark:border-white/10 text-white space-y-3">
-            <div className="flex items-center justify-between pb-3 border-b border-white/10">
-              <div>
+          <div className="p-5 rounded-3xl bg-slate-900 dark:bg-zinc-900 border border-slate-700/80 dark:border-white/10 text-white space-y-4 shadow-inner">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pb-4 border-b border-white/10 text-center sm:text-left">
+              <div className="flex flex-col items-center sm:items-start justify-center">
                 <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
                   Rată Metabolică Calculată
                 </span>
-                <p className="text-xs text-slate-300">
-                  BMR: <strong className="text-white">{calculation.bmr} kcal</strong> | TDEE (Mentenanță): <strong className="text-white">{calculation.tdee} kcal</strong>
+                <p className="text-xs text-slate-300 mt-1 flex flex-wrap items-center justify-center sm:justify-start gap-1.5">
+                  <span>BMR: <strong className="text-white">{calculation.bmr} kcal</strong></span>
+                  <span className="text-slate-500">•</span>
+                  <span>TDEE (Mentenanță): <strong className="text-white">{calculation.tdee} kcal</strong></span>
                 </p>
               </div>
-              <div className="text-right">
+
+              <div className="flex flex-col items-center sm:items-end justify-center">
                 <span className="text-[10px] font-black uppercase tracking-widest text-orange-400">
                   Țintă Zilnică Nouă
                 </span>
-                <p className="text-2xl font-black text-orange-400">
-                  {calculation.targetCalories} <span className="text-xs text-white">kcal</span>
+                <p className="text-2xl sm:text-3xl font-black text-orange-400 flex items-baseline justify-center sm:justify-end gap-1.5 mt-0.5">
+                  {calculation.targetCalories} <span className="text-xs font-bold text-white uppercase tracking-wider">kcal</span>
                 </p>
               </div>
             </div>
 
             {/* Macro Targets */}
-            <div className="grid grid-cols-4 gap-2 pt-1 text-center">
-              <div className="p-2.5 rounded-xl bg-blue-500/20 border border-blue-500/30">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-0.5">
+              <div className="p-3 rounded-2xl bg-blue-500/15 border border-blue-500/25 flex flex-col items-center justify-center text-center">
                 <span className="text-[10px] font-black uppercase tracking-wider text-blue-300">Proteine</span>
-                <p className="text-xl font-black text-white">{calculation.proteinGrams}g</p>
-                <span className="text-[9px] text-slate-400">{(calculation.proteinGrams / weightKg).toFixed(1)}g / kg</span>
+                <p className="text-xl sm:text-2xl font-black text-white my-1">{calculation.proteinGrams}g</p>
+                <span className="text-[10px] font-semibold text-slate-400">{(calculation.proteinGrams / weightKg).toFixed(1)}g / kg</span>
               </div>
 
-              <div className="p-2.5 rounded-xl bg-amber-500/20 border border-amber-500/30">
+              <div className="p-3 rounded-2xl bg-amber-500/15 border border-amber-500/25 flex flex-col items-center justify-center text-center">
                 <span className="text-[10px] font-black uppercase tracking-wider text-amber-300">Carbohidrați</span>
-                <p className="text-xl font-black text-white">{calculation.carbsGrams}g</p>
-                <span className="text-[9px] text-slate-400">Glicogen & Forță</span>
+                <p className="text-xl sm:text-2xl font-black text-white my-1">{calculation.carbsGrams}g</p>
+                <span className="text-[10px] font-semibold text-slate-400">Glicogen & Forță</span>
               </div>
 
-              <div className="p-2.5 rounded-xl bg-rose-500/20 border border-rose-500/30">
+              <div className="p-3 rounded-2xl bg-rose-500/15 border border-rose-500/25 flex flex-col items-center justify-center text-center">
                 <span className="text-[10px] font-black uppercase tracking-wider text-rose-300">Grăsimi</span>
-                <p className="text-xl font-black text-white">{calculation.fatGrams}g</p>
-                <span className="text-[9px] text-slate-400">Hormoni & Testo</span>
+                <p className="text-xl sm:text-2xl font-black text-white my-1">{calculation.fatGrams}g</p>
+                <span className="text-[10px] font-semibold text-slate-400">Hormoni & Testo</span>
               </div>
 
-              <div className="p-2.5 rounded-xl bg-cyan-500/20 border border-cyan-500/30">
+              <div className="p-3 rounded-2xl bg-cyan-500/15 border border-cyan-500/25 flex flex-col items-center justify-center text-center">
                 <span className="text-[10px] font-black uppercase tracking-wider text-cyan-300">Apă / Hidratare</span>
-                <p className="text-xl font-black text-white">{(calculation.waterMl / 1000).toFixed(1)}L</p>
-                <span className="text-[9px] text-slate-400">Fibre: {calculation.fiberGrams}g</span>
+                <p className="text-xl sm:text-2xl font-black text-white my-1">{(calculation.waterMl / 1000).toFixed(1)}L</p>
+                <span className="text-[10px] font-semibold text-slate-400">Fibre: {calculation.fiberGrams}g</span>
               </div>
             </div>
           </div>

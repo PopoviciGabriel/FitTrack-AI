@@ -1,10 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { 
-  ChevronRight, 
   Plus, 
   Sparkles, 
-  Timer as TimerIcon, 
-  Utensils
+  Timer as TimerIcon
 } from "lucide-react";
 import { 
   LineChart, 
@@ -185,23 +183,6 @@ export const HomeView = ({
           </div>
         </Card>
       </div>
-
-      {/* Quick Navigation - Nutriție & Macros full width */}
-      <button
-        onClick={() => onTabChange("nutrition")}
-        className="w-full p-6 rounded-[2.5rem] bg-white dark:bg-[#1a1a1a] border border-slate-200/60 dark:border-white/5 flex items-center justify-between text-left hover:border-blue-500/30 dark:hover:border-orange-500/30 transition-all cursor-pointer shadow-xs group active:scale-[0.99]"
-      >
-        <div className="flex items-center gap-4">
-          <div className="bg-amber-500/10 p-3.5 rounded-2xl text-amber-500 group-hover:scale-110 transition-transform shadow-xs">
-            <Utensils className="size-6" />
-          </div>
-          <div>
-            <p className="font-black text-base text-slate-950 dark:text-white uppercase leading-none">Nutriție & Macros</p>
-            <p className="text-xs font-bold text-slate-400 dark:text-zinc-500 mt-1.5">Proteine & Calorii</p>
-          </div>
-        </div>
-        <ChevronRight className="size-5 text-slate-400 dark:text-zinc-600 group-hover:translate-x-1 transition-transform" />
-      </button>
 
       {/* Weight Chart */}
       <Card title="Evoluție Greutate" className="border-slate-200/60 dark:border-white/5 shadow-xs">

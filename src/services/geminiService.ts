@@ -487,3 +487,118 @@ Cerințe stricte:
   }
 }
 
+/**
+ * Interactive Sports Science & Elite Fitness AI Expert capable of diagnosing and solving
+ * any user problem: biomechanics, injury prevention, plateaus, periodization, nutrition & swaps.
+ */
+export async function askAiCoachQuestion(
+  question: string,
+  workouts: Workout[]
+): Promise<string> {
+  const solveFallbackProblem = (q: string): string => {
+    const qLower = q.toLowerCase();
+
+    // 1. Joint Pain & Biomechanical Discomfort
+    if (qLower.includes("durere") || qLower.includes("doare") || qLower.includes("articul") || qLower.includes("umăr") || qLower.includes("umar") || qLower.includes("genunchi") || qLower.includes("spate") || qLower.includes("cot") || qLower.includes("tendon")) {
+      let specific = "Protocol general de siguranță articulară:";
+      if (qLower.includes("umăr") || qLower.includes("umar") || qLower.includes("piept") || qLower.includes("bench")) {
+        specific = "1. Durere de umeri la împins (Bench Press):\n• Adu omoplații în retracție și depresie (împachetează umerii în bancă).\n• Coboară unghiul coatelor la 45-60° față de trunchi (evită deschiderea la 90° care produce impingement subacromial).\n• Trecere temporară pe gantere cu priză neutră (semipronație) sau pe bancă ușor înclinată (15-30°).\n• Încălzire specifică: 2 serii de rotații externe cu bandă elastică pentru coafa rotatorilor.";
+      } else if (qLower.includes("genunchi") || qLower.includes("squat") || qLower.includes("genuflex")) {
+        specific = "1. Disconfort la genunchi (Genuflexiuni / Presă):\n• Verifică deplasarea genunchilor: trebuie să urmărească direcția degetelor de la picioare (evită colapsul în valg - genunchii spre interior).\n• Încălțăminte cu talpă plată sau toc rigid de haltere pentru a preveni instabilitatea gleznei.\n• Trecere temporară pe Box Squats sau Romanian Deadlifts pentru a încărca lanțul posterior și a reduce forțele de forfecare patelară.\n• Încălzire: 2-3 minute de mers pe bandă înclinată înapoi (backward walking) pentru flux sanguin în tendoanele patelare.";
+      } else if (qLower.includes("spate") || qLower.includes("lombar") || qLower.includes("deadlift") || qLower.includes("îndreptări")) {
+        specific = "1. Tensiune lombară la tracțiuni/îndreptări:\n• Activează 'bracing-ul abdominal' (manevra Valsalva): inspiră adânc în diafragmă și creează presiune intra-abdominală de 360° înainte de ridicare.\n• Ține bara lipită de tibie și coapse pe tot parcursul mișcării pentru a minimiza brațul de forță pe discurile L4-L5.\n• Înlocuiește temporar Deadlift-ul convențional de pe podea cu Trap Bar Deadlift sau Romanian Deadlift la înălțimea genunchilor.";
+      }
+
+      return `DIAGNOSTIC & PROTOCOL BIOMECANIC:\n\n${specific}\n\n2. Regula celor 24 de ore:\nDacă durerea depășește nivelul 3/10 pe o scală subiectivă sau persistă în repaus, redu încărcătura cu 30% și folosește un tempo controlat (3 secunde pe faza excentrică). Niciodată nu forța printr-o durere articulară ascuțită.`;
+    }
+
+    // 2. Plateau & Stagnation Busting
+    if (qLower.includes("stag") || qLower.includes("platou") || qLower.includes("blocat") || qLower.includes("nu mai cresc") || qLower.includes("aceeași greutate")) {
+      return `PROTOCOL DE DEBLOCARE RAPIDĂ A PLATOURILOR (Progressive Overload):\n\n1. Aplică Double Progression:\n• Nu încerca să crești greutatea direct dacă nu ai atins limita superioară a intervalului de repetări (ex: la 3 serii x 8-10 repetări, nu crești greutatea până nu faci 10, 10, 10 repetări curate).\n\n2. Micro-Loading (Pași mici):\n• În loc de salturi de 5 kg, adaugă discuri mici de 0.5 kg sau 1.25 kg pe fiecare parte (+1–2.5 kg total). Sistemul neuromuscular se adaptează mult mai stabil la salturi de 1-2% din încărcătură.\n\n3. Tehnica Back-Off Set:\n• Efectuează 1 serie grea la RPE 8-8.5, apoi scade greutatea cu 15-20% și execută încă 2 serii de volum concentrat la 8-12 repetări pentru acumulare mecanică.\n\n4. Verificare Recuperare:\n• Dacă stagnezi de mai mult de 3 săptămâni la mai multe exerciții simultan, ești într-un deficit de recuperare sistemică: programează o săptămână de Deload.`;
+    }
+
+    // 3. Deload & Fatigue Management
+    if (qLower.includes("deload") || qLower.includes("obosit") || qLower.includes("recuper") || qLower.includes("snc") || qLower.includes("epuiz")) {
+      return `GHIDUL PROFESIONAL PENTRU DELOAD & RECUPERARE SNC:\n\n1. Structura optimă a săptămânii de Deload:\n• Volum de seturi: Reduce numărul total de seturi pe grupă cu 50% (ex: dacă făceai 16 seturi/săptămână, fă doar 8 seturi).\n• Greutăți (Intensitate): Păstrează greutățile mari (80-85% din normal), dar oprește fiecare serie la RIR 3-4 (la 3-4 repetări distanță de eșec).\n\n2. De ce funcționează?\n• Menținerea încărcăturii semnalizează corpului să păstreze masa musculară intactă, în timp ce reducerea la jumătate a volumului permite disiparea oboselii acumulate la nivelul tendoanelor și al sistemului nervos central.\n\n3. Semne clare că ai nevoie de Deload:\n• Scăderea forței de prindere (grip strength), somn agitat, puls matinal crescut sau lipsă de motivare la sală.`;
+    }
+
+    // 4. Hypertrophy Volume & Muscle Groups
+    if (qLower.includes("volum") || qLower.includes("câte seturi") || qLower.includes("cate seturi") || qLower.includes("serii") || qLower.includes("hipertrofie")) {
+      return `STANDARDE ȘTIINȚIFICE DE VOLUM (RP Hypertrophy & Brad Schoenfeld):\n\n1. Volumul Eficient Săptămânal per Grupă:\n• MEV (Volum Minim Efectiv): ~8-10 seturi directe / săptămână.\n• MAV (Volum de Adaptare Maximă): 12-18 seturi directe / săptămână (zona ideală pentru majoritatea practicanților).\n• MRV (Volum Maxim Recuperabil): 20-22 seturi / săptămână (peste această limită riști junk volume și supra-antrenament).\n\n2. Frecvența Optimă:\n• Împarte volumul în 2 (sau 3) sesiuni pe săptămână per grupă musculară (ex: 6-8 seturi luni și 6-8 seturi joi). Sinteza proteică musculară atinge vârful la 24-36 de ore după antrenament și revine la bază.`;
+    }
+
+    // 5. Exercise Substitutions & Home/Equipment Swaps
+    if (qLower.includes("inlocu") || qLower.includes("înlocu") || qLower.includes("alternativ") || qLower.includes("fara aparat") || qLower.includes("acasă") || qLower.includes("acasa") || qLower.includes("gantere")) {
+      return `SUBSTITUȚII BIOMECANICE DIRECTE (Echivalență Musculară 1:1):\n\n• În loc de Împins cu bara de la piept: Împins cu gantere (priză neutră la 45°), Dips la paralele sau Flotări cu picioarele ridicate pe suport.\n• În loc de Genuflexiuni cu bara pe ceafă: Genuflexiuni Bulgărești (Bulgarian Split Squats cu gantere), Presă de picioare sau Hack Squat.\n• În loc de Tracțiuni la bară fixă: Tracțiuni la helcometru (Lat Pulldown) sau Ramat cu gantera cu sprijin pe bancă.\n• În loc de Îndreptări Convenționale: Romanian Deadlift (RDL cu gantere) sau Hip Thrust.\n• În loc de Împins Militar: Ramat vertical cu priză largă sau Ridicări laterale cu gantere în plan scapular.`;
+    }
+
+    // 6. Nutrition, Fat Loss, Cutting & Protein
+    if (qLower.includes("slăb") || qLower.includes("slab") || qLower.includes("defin") || qLower.includes("masă") || qLower.includes("masa") || qLower.includes("calorii") || qLower.includes("protein") || qLower.includes("creatin")) {
+      return `STRATEGIE DE NUTRIȚIE & COMPOZIȚIE CORPORALĂ:\n\n1. Aport Proteic Anabolic:\n• Menține 1.8 – 2.2 g proteine per kg corp (ex: la 80 kg = 150–175 g proteine/zi), împărțite în 3-4 mese a câte cel puțin 30-40g pentru a declanșa pragul de leucină.\n\n2. Obiectiv Definire (Cutting) fără pierdere de masă musculară:\n• Creează un deficit caloric moderat de 300-500 kcal sub nivelul de menținere (ritm optim de pierdere: 0.5-0.7% din greutatea corporală pe săptămână).\n• Păstrează intensitatea antrenamentelor la sală ridicată (greutăți mari, repetări mici spre medii).\n\n3. Creatină Monohidrat:\n• 3–5 g zilnic, luată la orice oră consistent, fără a fi necesară faza de încărcare. Crește rezervele de fosfocreatină intramusculară cu 20%.`;
+    }
+
+    // 7. General Fitness & Workout Programming
+    return `RECOMANDARE EXPERT PENTRU OPTIMIZAREA PROGRESULUI:\n\n1. Prioritatea la Următoarea Sesiune:\n• Vizează principiul supraîncărcării progresive: la prima serie a fiecărui exercițiu compus, încearcă fie +1 repetare curată, fie o creștere minimă de greutate (+1.25 kg).\n\n2. Calitatea Execuției:\n• Controlează faza excentrică (coborârea greutății timp de 2 secunde) pentru a maximiza tensiunea mecanică asupra fibrelor musculare fără a trișa cu impulsul corporal.\n\n3. Recuperare Sistemică:\n• Asigură un interval de 48 de ore înainte de a lucra din nou aceeași grupă musculară cu volum mare și asigură cel puțin 7.5 ore de somn de calitate.`;
+  };
+
+  try {
+    const ai = getAI();
+    if (!ai) {
+      return solveFallbackProblem(question);
+    }
+
+    // Build rich, multi-session context for Gemini
+    const summary = workouts
+      .slice(0, 8)
+      .map((w) => {
+        const topExercises = w.entries.slice(0, 4).map((e) => {
+          const valid = e.sets.filter((s) => s.completed || s.weight > 0);
+          const topSet = valid.reduce((best, s) => (s.weight > best.weight ? s : best), { weight: 0, reps: 0 });
+          return `${e.name} (${topSet.weight}kg × ${topSet.reps}r)`;
+        }).join(", ");
+        return `${w.title} [${w.date}]: ${topExercises}`;
+      })
+      .join("; \n");
+
+    const prompt = `Context utilizator FitTrack Pro:
+Sesiuni recente:
+${summary || "Fără istoric înregistrat încă."}
+
+Întrebare / Problemă utilizator:
+"${question}"
+
+Cerință pentru AI Expert:
+Acționează ca un Senior Sports Scientist, Antrenor de Culturism & Forță de Top Mondial și Fizioterapeut Expert.
+Analizează problema utilizatorului și oferă o SOLUȚIE COMPLETĂ, practică, aplicabilă și fundamentată științific (RP Hypertrophy, Brad Schoenfeld, Greg Nuckols).
+
+Structură răspuns:
+1. DIAGNOSTIC / RĂSPUNS DIRECT: Spune-i clar ce se întâmplă și de ce.
+2. PLAN DE ACȚIUNE PAS CU PAS: Pași numerotați clari (greutăți, repetări, serii, tehnică sau nutriție).
+3. PROTOCOL DE SIGURANȚĂ / SFAT BIOMECANIC: Cues de execuție sau măsuri de precauție.
+
+Reguli:
+- Fii direct, profesionist, cald și încurajator.
+- Răspunsul trebuie să fie în limba Română, structurat curat cu puncte.
+- Evită răspunsurile vagi ("consultă un medic" ca singur răspuns - oferă modificări biomecanice reale de antrenament).`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.8-flash",
+      contents: prompt,
+      config: {
+        systemInstruction:
+          "Ești AI Expert în FitTrack Pro, un geniu al științei sportive, hipertrofiei, biomecanicii și rezolvării problemelor de antrenament. Răspunzi oricărei întrebări a utilizatorului cu soluții 100% concrete, științifice și acționabile în limba Română.",
+      },
+    });
+
+    const resText = response.text?.trim();
+    if (!resText) {
+      return solveFallbackProblem(question);
+    }
+    return resText;
+  } catch (e) {
+    console.warn("AI Coach query error:", e);
+    return solveFallbackProblem(question);
+  }
+}
+
+

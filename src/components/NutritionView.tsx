@@ -533,13 +533,6 @@ export const NutritionView: React.FC<NutritionViewProps> = ({ onUpgradeClick }) 
               </div>
             </div>
           </div>
-
-          {/* MICRONUTRIENTS STRIP */}
-          <div className="flex items-center justify-between pt-4 mt-4 border-t border-white/5 text-xs text-slate-400">
-            <span>Sodiu total: <strong className="text-white">{totals.sodium} mg</strong></span>
-            <span>Aport Hidric: <strong className="text-cyan-400">{dayLog.waterMl} ml</strong></span>
-            <span>Alimente înregistrate: <strong className="text-white">{dayLog.meals.length}</strong></span>
-          </div>
         </div>
 
         {/* HYDRATION TRACKER CARD */}

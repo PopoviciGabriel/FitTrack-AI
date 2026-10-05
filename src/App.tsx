@@ -101,8 +101,6 @@ const WorkoutsView = ({
   onDeleteWorkout: (id: string) => void; 
   onSelectWorkout: (w: Workout) => void; 
 }) => {
-  const [compareIndex, setCompareIndex] = useState<0 | 1 | 2>(0);
-
   return (
     <div className="space-y-6 pb-24 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <header className="pt-[calc(env(safe-area-inset-top)+0.75rem)] pb-4 px-6 sticky top-0 bg-[#f4f7f0] dark:bg-[#000000] z-20 border-b border-slate-200 dark:border-white/5 -mx-4 transition-all flex justify-between items-center">
@@ -111,18 +109,10 @@ const WorkoutsView = ({
           <p className="text-blue-600 dark:text-orange-500 text-[10px] font-black uppercase tracking-[0.4em] mt-1.5 leading-none">Istoric Antrenamente</p>
         </div>
         <div className="flex items-center gap-2">
-          <select
-            value={compareIndex}
-            onChange={(e) => setCompareIndex(Number(e.target.value) as 0 | 1 | 2)}
-            className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 text-[10px] font-black uppercase tracking-wider py-2.5 px-3 rounded-xl text-slate-700 dark:text-zinc-200 focus:outline-none cursor-pointer active:scale-95 transition-transform duration-150"
-          >
-            <option value={0}>Curent</option>
-            <option value={1}>Tura Trecută</option>
-            <option value={2}>Acum 2 Dăți</option>
-          </select>
           <button
             onClick={onAddWorkout}
             className="bg-blue-600 dark:bg-orange-500 text-white dark:text-black p-2.5 rounded-xl cursor-pointer active:scale-95 transition-transform duration-150"
+            title="Adaugă Antrenament"
           >
             <Plus className="size-5" />
           </button>
@@ -130,75 +120,61 @@ const WorkoutsView = ({
       </header>
 
       <div className="space-y-5 px-1">
-        {workouts.map(w => {
-          let displayEntries = w.entries;
-          let displayDate = w.date;
-
-          const hasEnoughHistory = compareIndex === 0 || (w.history && w.history.length >= compareIndex);
-          if (!hasEnoughHistory) return null;
-
-          if (compareIndex > 0 && w.history) {
-            const historicalSnapshot = w.history[compareIndex - 1];
-            displayEntries = historicalSnapshot.entries;
-            displayDate = historicalSnapshot.date;
-          }
-
-          return (
-            <div 
-              key={w.id} 
-              onClick={() => onSelectWorkout(w)}
-              className="p-8 bg-white dark:bg-[#141414] border border-slate-200/60 dark:border-white/5 rounded-[2.5rem] cursor-pointer hover:border-blue-500/20 dark:hover:border-orange-500/30 transition-all relative group"
-            >
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <h4 className="font-black text-2xl text-slate-950 dark:text-white leading-tight tracking-tighter uppercase pr-2">{w.title}</h4>
-                  <p className="text-slate-500 dark:text-zinc-500 text-[10px] font-black uppercase tracking-[0.2em] flex items-center gap-2 mt-2 leading-none">
-                    <Calendar className="size-3 text-blue-600 dark:text-orange-500" /> {formatDate(displayDate)}
-                  </p>
-                </div>
-                
-                <div 
-                  role="button"
-                  tabIndex={0}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onDeleteWorkout(w.id);
-                  }}
-                  className="p-3 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-2xl transition-all cursor-pointer active:scale-95 shrink-0 relative z-10 flex items-center justify-center"
-                  aria-label="Șterge antrenament"
-                >
-                  <Trash2 className="size-4 pointer-events-none" />
-                </div>
+        {workouts.map(w => (
+          <div 
+            key={w.id} 
+            onClick={() => onSelectWorkout(w)}
+            className="p-8 bg-white dark:bg-[#141414] border border-slate-200/60 dark:border-white/5 rounded-[2.5rem] cursor-pointer hover:border-blue-500/20 dark:hover:border-orange-500/30 transition-all relative group"
+          >
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <h4 className="font-black text-2xl text-slate-950 dark:text-white leading-tight tracking-tighter uppercase pr-2">{w.title}</h4>
+                <p className="text-slate-500 dark:text-zinc-500 text-[10px] font-black uppercase tracking-[0.2em] flex items-center gap-2 mt-2 leading-none">
+                  <Calendar className="size-3 text-blue-600 dark:text-orange-500" /> {formatDate(w.date)}
+                </p>
               </div>
-
-              <div className="space-y-4 mt-6">
-                {displayEntries.slice(0, 4).map((e, idx) => (
-                  <div key={idx} className="flex flex-col gap-2">
-                    <div className="flex items-center gap-2">
-                      <div className="size-1.5 rounded-full bg-blue-600 dark:bg-orange-500 shrink-0" />
-                      <p className="text-slate-950 dark:text-zinc-300 text-sm font-black tracking-tight leading-none">
-                        {e.name}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap gap-2 pl-3.5">
-                      {e.sets.map((s, i) => (
-                        <span key={i} className="text-[10px] bg-slate-50 dark:bg-zinc-800/80 px-2 py-1.5 rounded-md text-slate-700 dark:text-zinc-400 font-bold border border-slate-200 dark:border-white/5">
-                          {s.weight}kg × {s.reps} {s.rpe ? `@RPE ${s.rpe}` : ""}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-                {displayEntries.length > 4 && (
-                  <p className="text-slate-400 dark:text-zinc-600 text-xs font-bold uppercase tracking-[0.1em] mt-2 italic px-4">
-                    + încă {displayEntries.length - 4} exerciții
-                  </p>
-                )}
+              
+              <div 
+                role="button"
+                tabIndex={0}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onDeleteWorkout(w.id);
+                }}
+                className="p-3 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-2xl transition-all cursor-pointer active:scale-95 shrink-0 relative z-10 flex items-center justify-center"
+                aria-label="Șterge antrenament"
+              >
+                <Trash2 className="size-4 pointer-events-none" />
               </div>
             </div>
-          );
-        })}
+
+            <div className="space-y-4 mt-6">
+              {w.entries.slice(0, 4).map((e, idx) => (
+                <div key={idx} className="flex flex-col gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className="size-1.5 rounded-full bg-blue-600 dark:bg-orange-500 shrink-0" />
+                    <p className="text-slate-950 dark:text-zinc-300 text-sm font-black tracking-tight leading-none">
+                      {e.name}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2 pl-3.5">
+                    {e.sets.map((s, i) => (
+                      <span key={i} className="text-[10px] bg-slate-50 dark:bg-zinc-800/80 px-2 py-1.5 rounded-md text-slate-700 dark:text-zinc-400 font-bold border border-slate-200 dark:border-white/5">
+                        {s.weight}kg × {s.reps} {s.rpe ? `@RPE ${s.rpe}` : ""}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {w.entries.length > 4 && (
+                <p className="text-slate-400 dark:text-zinc-600 text-xs font-bold uppercase tracking-[0.1em] mt-2 italic px-4">
+                  + încă {w.entries.length - 4} exerciții
+                </p>
+              )}
+            </div>
+          </div>
+        ))}
         
         {workouts.length === 0 && (
           <div className="text-center py-24 flex flex-col items-center">

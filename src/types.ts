@@ -81,7 +81,7 @@ export interface MetabolicProfile {
   age: number;
   weightKg: number;
   heightCm: number;
-  activityLevel: "sedentary" | "light" | "moderate" | "active" | "very_active";
+  activityLevel: "sedentary" | "light" | "moderate" | "active";
   goal: "hypertrophy" | "maintenance" | "cutting";
   targetRateKgPerWeek: number; // e.g. +0.25 kg/week
   calculatedBmr?: number;
@@ -102,11 +102,20 @@ export interface AiMealSuggestion {
   instructions: string[];
 }
 
+export interface MuscleVolumeTargetRange {
+  min: number;
+  max: number;
+}
+
+export type CustomMuscleVolumeTargets = Record<string, MuscleVolumeTargetRange>;
+
 export interface MuscleGroupVolume {
   category: string;
   directSets: number;
   status: "sub-antrenat" | "optim" | "supra-antrenat";
   recommendedSetsRange: string;
+  minTarget?: number;
+  maxTarget?: number;
 }
 
 export interface AiVolumeAnalysis {
