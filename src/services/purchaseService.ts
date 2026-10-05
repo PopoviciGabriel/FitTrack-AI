@@ -4,7 +4,7 @@ export const LICENSE_STORAGE_KEY = "fittrack_pro_license";
 export const FIRST_LAUNCH_STORAGE_KEY = "fittrack_first_launch_date";
 export const LICENSE_STORE_URL = "#";
 export const TRIAL_DURATION_DAYS = 7;
-export const LICENSE_PRICE_RON = 50;
+export const LICENSE_PRICE_RON = 20;
 export const LICENSE_PRICE_LABEL = `${LICENSE_PRICE_RON} RON`;
 
 const MS_PER_DAY = 86_400_000;
