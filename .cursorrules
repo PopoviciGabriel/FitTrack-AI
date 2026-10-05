@@ -1,0 +1,21 @@
+# FitTrack Pro - Rules & Architecture
+
+## Tech Stack
+- Frontend: React 18+ with TypeScript (Strict mode enabled).
+- Bundler & Tooling: Vite, Capacitor.
+- Styling: Modern modular CSS / Tailwind (clean, dark-mode focused fitness aesthetic).
+
+## Architectural Guidelines
+1. Decoupled Logic:
+   - Keep business logic, storage operations, and calculation algorithms inside `src/services/` or `src/lib/`.
+   - Keep UI components inside `src/components/` purely presentational and reactive to state/props.
+2. Typing:
+   - Always declare explicit types/interfaces in `src/types.ts`. Never use `any`.
+3. Offline & Mobile First:
+   - Ensure local data persistence works seamlessly via LocalStorage or Capacitor Preferences/Storage.
+   - Design touch targets and responsive UI suitable for mobile screens.
+
+## Agent Workflow Rules
+- Always give a concise 1-2 sentence overview of changes before modifying files.
+- Do NOT rewrite or delete working functions unless explicitly requested.
+- When adding a feature, update both the business logic service and the respective UI component.

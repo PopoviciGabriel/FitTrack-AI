@@ -1,20 +1,21 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# FitTrack Pro
 
-# Run and deploy your AI Studio app
+Aplicație de fitness & hipertrofie (React + Vite + Capacitor), offline-first.
 
-This contains everything you need to run your app locally.
+## Rulare locală
 
-View your app in AI Studio: https://ai.studio/apps/7b1c37bf-f198-44b9-b6f4-58250e50d102
+**Cerințe:** Node.js
 
-## Run Locally
+1. `npm install`
+2. `npm run dev`
 
-**Prerequisites:**  Node.js
+## AI Coach (Bring Your Own Key)
 
+Aplicația nu conține nicio cheie API. Pentru funcțiile AI, fiecare utilizator își introduce propria cheie Gemini
+(gratuită din [Google AI Studio](https://aistudio.google.com/apikey)) în **Setări → Configurare AI Coach**.
+Cheia se salvează doar pe dispozitiv (`localStorage`, `fittrack_user_gemini_key`). Fără cheie, AI Coach folosește
+recomandări offline.
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## Build
+
+`npm run build`, apoi `npm run sync` pentru Capacitor.

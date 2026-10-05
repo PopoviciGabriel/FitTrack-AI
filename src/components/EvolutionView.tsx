@@ -1,60 +1,26 @@
-import React, { useState, useMemo } from "react";
+import React, { useMemo } from "react";
 import { 
   TrendingUp, 
   Dumbbell, 
   Trophy, 
   Flame, 
-  Search, 
-  ArrowUpRight, 
-  ArrowDownRight,
-  BarChart3,
   CheckCircle2,
   Sparkles,
   RotateCcw
 } from "lucide-react";
-import { 
-  AreaChart, 
-  Area, 
-  ResponsiveContainer, 
-  XAxis, 
-  YAxis, 
-  Tooltip, 
-  CartesianGrid 
-} from "recharts";
-import { Workout, ExerciseEntry, Set, PRESET_EXERCISES } from "../types";
-import { cn, formatDate } from "../lib/utils";
+import { Workout, ExerciseEntry, Set, TimelineSession, CustomMuscleGroup, PRESET_EXERCISES } from "../types";
+import { cn } from "../lib/utils";
+import {
+  buildDailySessions,
+  findPreviousDayEntry,
+  parseDateToTimestamp,
+} from "../services/algorithmService";
+import { customGroupToAnalyticsCategory, isCustomExerciseId } from "../services/exerciseService";
 
 export interface EvolutionViewProps {
   workouts: Workout[];
   theme: "light" | "dark";
   onUpgradeClick?: () => void;
-}
-
-interface ExerciseSessionPoint {
-  workoutId: string;
-  workoutTitle: string;
-  date: string;
-  timestamp: number;
-  bestWeight: number;
-  bestReps: number;
-  totalSets: number;
-  totalVolume: number;
-  sets: Set[];
-}
-
-interface ExerciseProgression {
-  exerciseName: string;
-  exerciseId?: string;
-  sessions: ExerciseSessionPoint[];
-  latestSession: ExerciseSessionPoint;
-  previousSession?: ExerciseSessionPoint;
-  peakWeight: number;
-  peakRepsAtPeakWeight: number;
-  totalSessions: number;
-  // Progress from previous session to latest session
-  diffWeight: number;
-  diffReps: number;
-  progressStatus: "improved" | "maintained" | "regressed" | "first_session";
 }
 
 interface SessionTonnagePoint {
@@ -73,7 +39,13 @@ interface SessionTonnagePoint {
  * Robust muscle group classification inspired directly by the Journal exercise database (PRESET_EXERCISES)
  * and rich keyword fallbacks for custom-named or imported exercises.
  */
-export function getMuscleCategoryForEntry(exerciseName: string, exerciseId?: string): string {
+export function getMuscleCategoryForEntry(
+  exerciseName: string,
+  exerciseId?: string,
+  customMuscleGroup?: CustomMuscleGroup
+): string {
+  if (customMuscleGroup) return customGroupToAnalyticsCategory(customMuscleGroup);
+
   const normName = exerciseName.trim().toLowerCase();
 
   // 1. Precise lookup in Jurnal's PRESET_EXERCISES database
@@ -199,13 +171,31 @@ export function getMuscleCategoryForEntry(exerciseName: string, exerciseId?: str
 
   // Check Abs & Core
   if (
-    normName.includes("ab") || normName.includes("crunch") || normName.includes("plank") ||
+    /\babs?\b/.test(normName) || normName.includes("abdom") || normName.includes("crunch") || normName.includes("plank") ||
     normName.includes("core") || normName.includes("woodchopper") || normName.includes("leg raise")
   ) {
     return "Abdomen";
   }
 
   return "Alte Grupe";
+}
+
+export { parseDateToTimestamp };
+
+/** Heaviest set (ties broken by reps) among sets that carry any data. */
+function getBestSet(sets: Set[]): { weight: number; reps: number } {
+  let weight = 0;
+  let reps = 0;
+  for (const s of sets) {
+    if (!(s.completed || s.weight > 0 || s.reps > 0)) continue;
+    const w = s.weight || 0;
+    const r = s.reps || 0;
+    if (w > weight || (w === weight && r > reps)) {
+      weight = w;
+      reps = r;
+    }
+  }
+  return { weight, reps };
 }
 
 /**
@@ -215,6 +205,9 @@ export function getMuscleCategoryForEntry(exerciseName: string, exerciseId?: str
 export function resolveFullExerciseName(rawName: string, exerciseId?: string): string {
   if (!rawName) return "";
   const clean = rawName.replace(/\.{2,}$/, "").trim();
+
+  // User-created exercises keep their exact name: the fuzzy matching below could rewrite it into a preset.
+  if (isCustomExerciseId(exerciseId)) return clean;
 
   // 1. By explicit exerciseId in PRESET_EXERCISES
   if (exerciseId) {
@@ -237,6 +230,16 @@ export function resolveFullExerciseName(rawName: string, exerciseId?: string): s
     return "Machine Shoulder Press";
   }
 
+  if (norm.includes("tricep") || norm.includes("triceps")) {
+    if (norm.includes("extension") || norm.includes("extens")) {
+      return "Triceps Overhead Extension";
+    }
+    if (norm.includes("pushdown") || norm.includes("cablu")) {
+      return "Triceps Pushdown";
+    }
+    return "Triceps Overhead Extension";
+  }
+
   // Prefix match against presets
   const matchPrefix = PRESET_EXERCISES.find(p => {
     const pNorm = p.name.toLowerCase().replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ").trim();
@@ -253,48 +256,13 @@ export const EvolutionView = ({
   workouts, 
   theme 
 }: EvolutionViewProps) => {
-  const [timeframe, setTimeframe] = useState<"all" | "90" | "30">("all");
-  const [searchExercise, setSearchExercise] = useState<string>("");
-  const [selectedExerciseName, setSelectedExerciseName] = useState<string | null>(null);
+  // 1. One session per workout per calendar day (same-day edits are merged into the last state)
+  const allChronologicalWorkouts = useMemo<TimelineSession[]>(
+    () => buildDailySessions(workouts),
+    [workouts]
+  );
 
-  // 1. Process all chronological sessions from workouts (including history snapshots)
-  const allChronologicalWorkouts = useMemo(() => {
-    const list: {
-      workoutId: string;
-      title: string;
-      date: string;
-      timestamp: number;
-      entries: ExerciseEntry[];
-    }[] = [];
-
-    workouts.forEach((w) => {
-      // Historical snapshots
-      if (w.history && w.history.length > 0) {
-        w.history.forEach((h) => {
-          list.push({
-            workoutId: `${w.id}-snap-${h.date}`,
-            title: w.title,
-            date: h.date,
-            timestamp: new Date(h.date).getTime() || 0,
-            entries: h.entries,
-          });
-        });
-      }
-
-      // Current workout
-      list.push({
-        workoutId: w.id,
-        title: w.title,
-        date: w.date,
-        timestamp: new Date(w.date).getTime() || 0,
-        entries: w.entries,
-      });
-    });
-
-    return list.sort((a, b) => a.timestamp - b.timestamp);
-  }, [workouts]);
-
-  // 2. Compute Tonnage per session for Total Tonnage tracking & chart
+  // 2. Compute Tonnage per session for Total Tonnage tracking
   const timelineTonnage = useMemo<SessionTonnagePoint[]>(() => {
     return allChronologicalWorkouts.map((w) => {
       let ton = 0;
@@ -316,13 +284,13 @@ export const EvolutionView = ({
           if (weight > topWeight || (weight === topWeight && reps > topReps)) {
             topWeight = weight;
             topReps = reps;
-            topEx = e.name;
+            topEx = resolveFullExerciseName(e.name, e.exerciseId);
           }
         });
       });
 
       return {
-        workoutId: w.workoutId,
+        workoutId: `${w.workoutKey}-${w.dayKey}`,
         title: w.title,
         date: w.date,
         timestamp: w.timestamp,
@@ -334,15 +302,6 @@ export const EvolutionView = ({
       };
     }).filter((t) => t.totalTonnage > 0 || t.totalSets > 0);
   }, [allChronologicalWorkouts]);
-
-  // Filter tonnage timeline by timeframe
-  const filteredTonnageTimeline = useMemo(() => {
-    if (timeframe === "all") return timelineTonnage;
-    const now = Date.now();
-    const days = timeframe === "30" ? 30 : 90;
-    const cutoff = now - days * 24 * 60 * 60 * 1000;
-    return timelineTonnage.filter((t) => t.timestamp >= cutoff);
-  }, [timelineTonnage, timeframe]);
 
   // Global aggregate metrics
   const globalMetrics = useMemo(() => {
@@ -390,122 +349,92 @@ export const EvolutionView = ({
     };
   }, [timelineTonnage, allChronologicalWorkouts]);
 
-  // 3. Workout-to-Workout Exercise Progression Engine (Weight & Reps only, NO 1RM!)
-  const exerciseProgressions = useMemo<ExerciseProgression[]>(() => {
-    const map = new Map<string, ExerciseSessionPoint[]>();
-    const exerciseIdMap = new Map<string, string>();
+  // 3. Comprehensive Workout-to-Workout Progression for the Latest Workout Session
+  const latestWorkoutAnalysis = useMemo(() => {
+    if (allChronologicalWorkouts.length === 0) return null;
+    const latestW = allChronologicalWorkouts[allChronologicalWorkouts.length - 1];
 
-    allChronologicalWorkouts.forEach((w) => {
-      w.entries.forEach((entry) => {
-        const cleanName = entry.name.trim();
-        if (!cleanName) return;
-        if (entry.exerciseId) {
-          exerciseIdMap.set(cleanName, entry.exerciseId);
-        }
+    const exercisesAnalysis = latestW.entries.map((entry) => {
+      const canonicalName = resolveFullExerciseName(entry.name || "", entry.exerciseId);
 
-        const validSets = entry.sets.filter((s) => s.completed || s.weight > 0 || s.reps > 0);
-        if (validSets.length === 0) return;
-
-        // Find best set in this session (highest weight, or highest reps at equal weight)
-        let bestW = 0;
-        let bestR = 0;
-        let sessionVolume = 0;
-
-        validSets.forEach((s) => {
-          const wVal = s.weight || 0;
-          const rVal = s.reps || 0;
-          sessionVolume += wVal * rVal;
-          if (wVal > bestW || (wVal === bestW && rVal > bestR)) {
-            bestW = wVal;
-            bestR = rVal;
-          }
-        });
-
-        const list = map.get(cleanName) || [];
-        list.push({
-          workoutId: w.workoutId,
-          workoutTitle: w.title,
-          date: w.date,
-          timestamp: w.timestamp,
-          bestWeight: bestW,
-          bestReps: bestR,
-          totalSets: validSets.length,
-          totalVolume: sessionVolume,
-          sets: validSets,
-        });
-        map.set(cleanName, list);
-      });
-    });
-
-    const result: ExerciseProgression[] = [];
-
-    map.forEach((sessions, exerciseName) => {
-      // Sort sessions chronologically ascending
-      sessions.sort((a, b) => a.timestamp - b.timestamp);
-
-      let peakWeight = 0;
-      let peakRepsAtPeakWeight = 0;
-
-      sessions.forEach((s) => {
-        if (s.bestWeight > peakWeight || (s.bestWeight === peakWeight && s.bestReps > peakRepsAtPeakWeight)) {
-          peakWeight = s.bestWeight;
-          peakRepsAtPeakWeight = s.bestReps;
+      const validCurrentSets = entry.sets.filter((s) => s.completed || s.weight > 0 || s.reps > 0);
+      let curBestW = 0;
+      let curBestR = 0;
+      validCurrentSets.forEach((s) => {
+        const w = s.weight || 0;
+        const r = s.reps || 0;
+        if (w > curBestW || (w === curBestW && r > curBestR)) {
+          curBestW = w;
+          curBestR = r;
         }
       });
 
-      const latestSession = sessions[sessions.length - 1];
-      const previousSession = sessions.length >= 2 ? sessions[sessions.length - 2] : undefined;
+      // Compare only with the latest session from an EARLIER calendar day:
+      // edits made earlier today are never used as the baseline.
+      let prevSession: {
+        bestWeight: number;
+        bestReps: number;
+        workoutTitle: string;
+      } | null = null;
+
+      const previous = findPreviousDayEntry(allChronologicalWorkouts, latestW.dayKey, (e) => {
+        const prevCanonical = resolveFullExerciseName(e.name || "", e.exerciseId);
+        if (prevCanonical.toLowerCase() !== canonicalName.toLowerCase()) return false;
+        const best = getBestSet(e.sets);
+        return best.weight > 0 || best.reps > 0;
+      });
+
+      if (previous) {
+        const best = getBestSet(previous.entry.sets);
+        prevSession = {
+          bestWeight: best.weight,
+          bestReps: best.reps,
+          workoutTitle: previous.session.title,
+        };
+      }
 
       let diffWeight = 0;
       let diffReps = 0;
-      let progressStatus: "improved" | "maintained" | "regressed" | "first_session" = "first_session";
+      let status: "improved" | "maintained" | "regressed" | "new" = "new";
 
-      if (previousSession) {
-        diffWeight = Math.round((latestSession.bestWeight - previousSession.bestWeight) * 10) / 10;
-        diffReps = latestSession.bestReps - previousSession.bestReps;
+      if (prevSession) {
+        diffWeight = Math.round((curBestW - prevSession.bestWeight) * 10) / 10;
+        diffReps = curBestR - prevSession.bestReps;
 
         if (diffWeight > 0 || (diffWeight === 0 && diffReps > 0)) {
-          progressStatus = "improved";
+          status = "improved";
         } else if (diffWeight === 0 && diffReps === 0) {
-          progressStatus = "maintained";
+          status = "maintained";
         } else {
-          progressStatus = "regressed";
+          status = "regressed";
         }
       }
 
-      result.push({
-        exerciseName,
-        exerciseId: exerciseIdMap.get(exerciseName),
-        sessions,
-        latestSession,
-        previousSession,
-        peakWeight,
-        peakRepsAtPeakWeight,
-        totalSessions: sessions.length,
+      return {
+        exerciseName: canonicalName,
+        currentWeight: curBestW,
+        currentReps: curBestR,
+        prevSession,
         diffWeight,
         diffReps,
-        progressStatus,
-      });
-    });
+        status,
+        category: getMuscleCategoryForEntry(canonicalName, entry.exerciseId, entry.muscleGroup),
+      };
+    }).filter((ex) => ex.currentWeight > 0 || ex.currentReps > 0);
 
-    // Sort by most recently trained or total sessions
-    return result.sort((a, b) => b.latestSession.timestamp - a.latestSession.timestamp);
+    const improvedCount = exercisesAnalysis.filter((e) => e.status === "improved").length;
+    const maintainedCount = exercisesAnalysis.filter((e) => e.status === "maintained").length;
+    const comparedCount = exercisesAnalysis.filter((e) => e.prevSession !== null).length;
+
+    return {
+      workoutTitle: latestW.title,
+      exercises: exercisesAnalysis,
+      improvedCount,
+      maintainedCount,
+      comparedCount,
+      overloadRatePct: comparedCount > 0 ? Math.round((improvedCount / comparedCount) * 100) : 100,
+    };
   }, [allChronologicalWorkouts]);
-
-  // Filter exercises by user search query
-  const filteredExercises = useMemo(() => {
-    if (!searchExercise.trim()) return exerciseProgressions;
-    const query = searchExercise.toLowerCase().trim();
-    return exerciseProgressions.filter((e) => e.exerciseName.toLowerCase().includes(query));
-  }, [exerciseProgressions, searchExercise]);
-
-  // Active expanded exercise progression details
-  const activeExerciseProgression = useMemo(() => {
-    if (!selectedExerciseName) {
-      return exerciseProgressions.length > 0 ? exerciseProgressions[0] : null;
-    }
-    return exerciseProgressions.find((e) => e.exerciseName === selectedExerciseName) || exerciseProgressions[0] || null;
-  }, [exerciseProgressions, selectedExerciseName]);
 
   // Format Tonnage Display helper
   const formatTonnage = (kg: number) => {
@@ -522,16 +451,6 @@ export const EvolutionView = ({
   };
 
   const formattedTonnage = formatTonnage(globalMetrics.totalTonnage);
-
-  // Overall tonnage trend %
-  const tonnageTrendPct = useMemo(() => {
-    if (filteredTonnageTimeline.length < 2) return null;
-    const first = filteredTonnageTimeline[0].totalTonnage;
-    const last = filteredTonnageTimeline[filteredTonnageTimeline.length - 1].totalTonnage;
-    if (first === 0) return null;
-    const pct = ((last - first) / first) * 100;
-    return Math.round(pct * 10) / 10;
-  }, [filteredTonnageTimeline]);
 
   // 4. Recorduri de Forță per Grupă Musculară (Algoritm dedicat: ia cel mai solicitant exercițiu per grupă)
   const muscleGroupStrengthRecords = useMemo(() => {
@@ -567,7 +486,7 @@ export const EvolutionView = ({
         const fullExerciseName = resolveFullExerciseName(entry.name || "", entry.exerciseId);
         if (!fullExerciseName) return;
 
-        const category = getMuscleCategoryForEntry(fullExerciseName, entry.exerciseId);
+        const category = getMuscleCategoryForEntry(fullExerciseName, entry.exerciseId, entry.muscleGroup);
 
         const validSets = entry.sets.filter((s) => s.completed || s.weight > 0 || s.reps > 0);
         validSets.forEach((s) => {
@@ -624,49 +543,14 @@ export const EvolutionView = ({
     <div className="space-y-6 pb-28 animate-in fade-in slide-in-from-bottom-4 duration-500 select-none">
       {/* Top Header */}
       <header className="pt-[calc(env(safe-area-inset-top)+1rem)] pb-4 px-6 sticky top-0 bg-[#f4f7f0] dark:bg-[#000000] z-20 border-b border-slate-200 dark:border-white/5 -mx-4 transition-all">
-        <div className="flex justify-between items-center">
-          <div>
+        <div className="flex justify-between items-center gap-3">
+          <div className="min-w-0">
             <h1 className="text-3xl font-black tracking-tighter text-slate-950 dark:text-zinc-50 uppercase leading-none">
-              Evoluție.
+              EVOLUȚIE
             </h1>
-            <p className="text-blue-600 dark:text-orange-500 text-[10px] font-black uppercase tracking-[0.4em] mt-1.5 leading-none">
+            <p className="text-blue-600 dark:text-orange-500 text-[10px] font-black uppercase tracking-[0.25em] min-[400px]:tracking-[0.3em] sm:tracking-[0.4em] mt-1.5 leading-snug break-words">
               Progres Sesiune de la Sesiune
             </p>
-          </div>
-          <div className="bg-slate-200/70 dark:bg-white/5 p-1 rounded-2xl flex items-center gap-1">
-            <button
-              onClick={() => setTimeframe("30")}
-              className={cn(
-                "px-2.5 py-1 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer active:scale-95",
-                timeframe === "30" 
-                  ? "bg-white dark:bg-zinc-800 text-blue-600 dark:text-orange-500 shadow-xs" 
-                  : "text-slate-500 dark:text-zinc-400"
-              )}
-            >
-              30z
-            </button>
-            <button
-              onClick={() => setTimeframe("90")}
-              className={cn(
-                "px-2.5 py-1 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer active:scale-95",
-                timeframe === "90" 
-                  ? "bg-white dark:bg-zinc-800 text-blue-600 dark:text-orange-500 shadow-xs" 
-                  : "text-slate-500 dark:text-zinc-400"
-              )}
-            >
-              90z
-            </button>
-            <button
-              onClick={() => setTimeframe("all")}
-              className={cn(
-                "px-2.5 py-1 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer active:scale-95",
-                timeframe === "all" 
-                  ? "bg-white dark:bg-zinc-800 text-blue-600 dark:text-orange-500 shadow-xs" 
-                  : "text-slate-500 dark:text-zinc-400"
-              )}
-            >
-              Tot
-            </button>
           </div>
         </div>
       </header>
@@ -674,9 +558,9 @@ export const EvolutionView = ({
       {/* Global Performance Summary Cards */}
       <div className="grid grid-cols-2 gap-3.5 px-1">
         {/* Tonaj Total */}
-        <div className="p-6 bg-white dark:bg-[#141414] border border-slate-200/60 dark:border-white/5 rounded-[2.5rem] shadow-xs flex flex-col justify-between">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-zinc-500">
+        <div className="min-w-0 p-4 sm:p-6 bg-white dark:bg-[#141414] border border-slate-200/60 dark:border-white/5 rounded-[2rem] sm:rounded-[2.5rem] shadow-xs flex flex-col justify-between">
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <span className="min-w-0 text-[10px] font-black uppercase tracking-wider sm:tracking-widest text-slate-400 dark:text-zinc-500">
               Tonaj Total
             </span>
             <div className="p-2 rounded-xl bg-blue-500/10 dark:bg-orange-500/10 text-blue-600 dark:text-orange-500">
@@ -697,9 +581,9 @@ export const EvolutionView = ({
         </div>
 
         {/* Antrenamente Înregistrate */}
-        <div className="p-6 bg-white dark:bg-[#141414] border border-slate-200/60 dark:border-white/5 rounded-[2.5rem] shadow-xs flex flex-col justify-between">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-zinc-500">
+        <div className="min-w-0 p-4 sm:p-6 bg-white dark:bg-[#141414] border border-slate-200/60 dark:border-white/5 rounded-[2rem] sm:rounded-[2.5rem] shadow-xs flex flex-col justify-between">
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <span className="min-w-0 text-[10px] font-black uppercase tracking-wider sm:tracking-widest text-slate-400 dark:text-zinc-500">
               Sesiuni
             </span>
             <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-500">
@@ -720,343 +604,326 @@ export const EvolutionView = ({
         </div>
       </div>
 
-      {/* WORKOUT-TO-WORKOUT PROGRESSION SECTION (SIMPLIFIED AI INTERFACE DESIGN) */}
-      <div className="p-6 sm:p-7 bg-white dark:bg-[#141414] border border-slate-200/60 dark:border-white/5 rounded-[2.5rem] shadow-xs space-y-5 mx-1">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <TrendingUp className="size-4 text-blue-600 dark:text-orange-500" />
-            <h3 className="font-black text-lg text-slate-950 dark:text-white uppercase tracking-tight leading-none">
-              Progres Sesiune de la Sesiune
-            </h3>
-          </div>
-          <p className="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-widest">
-            Comparație directă de greutate și repetări între ultimul antrenament și cel anterior
-          </p>
-        </div>
+      {/* 2026 MODERN PROGRES SESIUNE DE LA SESIUNE & ANALIZĂ GLOBALĂ ANTRENAMENT */}
+      <div className="p-4 sm:p-7 bg-white dark:bg-[#121214] border border-slate-200/80 dark:border-white/[0.08] rounded-[2rem] sm:rounded-[2.5rem] shadow-sm space-y-5 sm:space-y-6 mx-1 relative overflow-hidden">
+        {/* Subtle ambient accent */}
+        <div className="absolute top-0 right-0 w-72 h-72 bg-blue-500/5 dark:bg-orange-500/5 rounded-full blur-3xl pointer-events-none" />
 
-        {/* Exercise Quick Selector & Search */}
-        <div className="space-y-3">
-          <div className="relative">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Caută exercițiu (ex: Bench, Presă Umeri, Genuflexiuni, Tracțiuni)..."
-              value={searchExercise}
-              onChange={(e) => setSearchExercise(e.target.value)}
-              className="w-full bg-slate-100 dark:bg-black/50 border border-slate-200/80 dark:border-white/10 rounded-2xl pl-10 pr-4 py-2.5 text-xs font-bold text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-blue-500 dark:focus:border-orange-500 transition-colors"
-            />
+        {/* Section Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-white/5 relative z-10">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="size-10 rounded-2xl bg-blue-500/10 dark:bg-orange-500/10 border border-blue-500/20 dark:border-orange-500/20 flex items-center justify-center text-blue-600 dark:text-orange-500 shrink-0 shadow-2xs">
+              <TrendingUp className="size-5" />
+            </div>
+            <div className="min-w-0">
+              <h3 className="font-black text-base sm:text-xl text-slate-950 dark:text-white uppercase tracking-tight leading-tight break-words">
+                Progres Sesiune de la Sesiune
+              </h3>
+              <p className="text-[11px] font-semibold text-slate-500 dark:text-zinc-400 mt-0.5 break-words">
+                Analiză globală antrenament · Comparație exactă greutate &amp; repetări
+              </p>
+            </div>
           </div>
-
-          {filteredExercises.length > 0 && (
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none [&::-webkit-scrollbar]:hidden">
-              {filteredExercises.slice(0, 10).map((ex) => (
-                <button
-                  key={ex.exerciseName}
-                  onClick={() => setSelectedExerciseName(ex.exerciseName)}
-                  className={cn(
-                    "px-3.5 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wider shrink-0 transition-all cursor-pointer",
-                    activeExerciseProgression?.exerciseName === ex.exerciseName
-                      ? "bg-blue-600 dark:bg-orange-500 text-white dark:text-black shadow-xs scale-102"
-                      : "bg-slate-100 dark:bg-zinc-800/80 text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white"
-                  )}
-                >
-                  {ex.exerciseName}
-                </button>
-              ))}
+          {latestWorkoutAnalysis && (
+            <div className="self-start sm:self-center min-w-0 max-w-full sm:shrink-0">
+              <span className="text-[11px] font-black uppercase tracking-wider px-3 py-1 rounded-xl bg-blue-50/80 dark:bg-orange-500/10 text-blue-600 dark:text-orange-400 border border-blue-200/60 dark:border-orange-500/20 inline-flex max-w-full items-start gap-1.5">
+                <span className="size-1.5 mt-1.5 rounded-full bg-blue-600 dark:bg-orange-500 shrink-0" />
+                <span className="min-w-0 break-words leading-snug">
+                  {latestWorkoutAnalysis.workoutTitle}
+                </span>
+              </span>
             </div>
           )}
         </div>
 
-        {/* Selected Exercise Step-by-Step Session Progression Card */}
-        {activeExerciseProgression ? (
-          <div className="space-y-4">
-            {/* Header & AI Assessment Badge */}
-            <div className="p-4 rounded-3xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200/80 dark:border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-blue-600 dark:text-orange-500">
-                    {getMuscleCategoryForEntry(activeExerciseProgression.exerciseName, activeExerciseProgression.exerciseId)}
+        {/* Analiză Globală Antrenament */}
+        {latestWorkoutAnalysis && latestWorkoutAnalysis.exercises.length > 0 ? (
+          <div className="space-y-5 relative z-10">
+            {/* Global Overload Rate Banner */}
+            <div className="p-4 sm:p-6 rounded-[1.75rem] sm:rounded-[2rem] bg-slate-50/90 dark:bg-[#19191d] border border-slate-200/90 dark:border-white/[0.08] shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="space-y-1 min-w-0">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-zinc-500">
+                    Analiză Globală Antrenament
                   </span>
                   <span className="size-1 rounded-full bg-slate-300 dark:bg-zinc-700" />
-                  <span className="text-[10px] text-slate-400 font-bold">
-                    {activeExerciseProgression.totalSessions} {activeExerciseProgression.totalSessions === 1 ? "sesiune" : "sesiuni"}
+                  <span className="text-[10px] font-bold text-blue-600 dark:text-orange-500 uppercase tracking-wider">
+                    {latestWorkoutAnalysis.exercises.length} exerciții evaluate
                   </span>
                 </div>
-                <h4 className="text-xl font-black text-slate-950 dark:text-white uppercase tracking-tight mt-0.5">
-                  {activeExerciseProgression.exerciseName}
+                <h4 className="text-base sm:text-lg font-black text-slate-950 dark:text-white uppercase tracking-tight break-words leading-snug">
+                  Progresul Exercițiilor în {latestWorkoutAnalysis.workoutTitle}
                 </h4>
+                <p className="text-xs font-medium text-slate-600 dark:text-zinc-400 break-words">
+                  {latestWorkoutAnalysis.comparedCount > 0 ? (
+                    <>
+                      <span className="font-bold text-slate-900 dark:text-white">
+                        {latestWorkoutAnalysis.improvedCount} din {latestWorkoutAnalysis.comparedCount}
+                      </span>{" "}
+                      exerciții au progresat în greutate sau repetări față de sesiunea anterioară.
+                    </>
+                  ) : (
+                    "Toate exercițiile din acest antrenament reprezintă baza inițială de referință."
+                  )}
+                </p>
               </div>
 
-              {/* Status Badge */}
-              <div className="shrink-0 self-start sm:self-auto">
-                {activeExerciseProgression.previousSession ? (
-                  <div
-                    className={cn(
-                      "px-3.5 py-1.5 rounded-2xl flex items-center gap-1.5 text-xs font-black uppercase tracking-wider border shadow-xs",
-                      activeExerciseProgression.progressStatus === "improved"
-                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
-                        : activeExerciseProgression.progressStatus === "maintained"
-                        ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30"
-                        : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30"
-                    )}
-                  >
-                    {activeExerciseProgression.progressStatus === "improved" ? (
-                      <>
-                        <Sparkles className="size-3.5 shrink-0" />
-                        <span>
-                          {activeExerciseProgression.diffWeight > 0
-                            ? `+${activeExerciseProgression.diffWeight} kg`
-                            : `+${activeExerciseProgression.diffReps} reps`} • Progres Reușit
-                        </span>
-                      </>
-                    ) : activeExerciseProgression.progressStatus === "maintained" ? (
-                      <>
-                        <CheckCircle2 className="size-3.5 shrink-0" />
-                        <span>Performanță Menținută</span>
-                      </>
-                    ) : (
-                      <>
-                        <RotateCcw className="size-3.5 shrink-0" />
-                        <span>
-                          {activeExerciseProgression.diffWeight < 0
-                            ? `${activeExerciseProgression.diffWeight} kg`
-                            : `${activeExerciseProgression.diffReps} reps`} • Deload / Recuperare
-                        </span>
-                      </>
-                    )}
+              {/* Overload Metrics Pills/Counters */}
+              <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                <div className="px-3.5 py-2 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex flex-col items-center">
+                  <div className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                    <Sparkles className="size-3.5" />
+                    <span className="text-lg font-black leading-none">
+                      {latestWorkoutAnalysis.improvedCount}
+                    </span>
                   </div>
-                ) : (
-                  <span className="text-[10px] font-black uppercase px-3 py-1.5 rounded-xl bg-slate-200/70 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300">
-                    Sesiune Inițială
+                  <span className="text-[9px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 mt-1">
+                    Progres
                   </span>
+                </div>
+
+                <div className="px-3.5 py-2 rounded-2xl bg-blue-500/10 dark:bg-orange-500/10 border border-blue-500/20 dark:border-orange-500/20 flex flex-col items-center">
+                  <div className="flex items-center gap-1 text-blue-600 dark:text-orange-500">
+                    <CheckCircle2 className="size-3.5" />
+                    <span className="text-lg font-black leading-none">
+                      {latestWorkoutAnalysis.maintainedCount}
+                    </span>
+                  </div>
+                  <span className="text-[9px] font-black uppercase tracking-wider text-blue-600 dark:text-orange-500 mt-1">
+                    Constant
+                  </span>
+                </div>
+
+                {latestWorkoutAnalysis.comparedCount > 0 && (
+                  <div className="px-3.5 py-2 rounded-2xl bg-slate-100 dark:bg-zinc-800/80 border border-slate-200/80 dark:border-white/5 flex flex-col items-center">
+                    <span className="text-lg font-black text-slate-900 dark:text-white leading-none">
+                      {latestWorkoutAnalysis.overloadRatePct}%
+                    </span>
+                    <span className="text-[9px] font-black uppercase tracking-wider text-slate-500 dark:text-zinc-400 mt-1">
+                      Rată Progres
+                    </span>
+                  </div>
                 )}
               </div>
             </div>
 
-            {/* Symmetrical Two-Box Comparison: Previous vs Latest Workout */}
-            {activeExerciseProgression.previousSession ? (
-              <div className="grid grid-cols-2 gap-3">
-                {/* Sesiunea Trecută */}
-                <div className="p-5 rounded-3xl bg-slate-50 dark:bg-zinc-900/60 border border-slate-200/80 dark:border-white/5 flex flex-col justify-between">
-                  <div className="mb-2">
-                    <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 block">
-                      Data Trecută
-                    </span>
-                    <span className="text-[10px] font-semibold text-slate-400">
-                      {formatDate(activeExerciseProgression.previousSession.date)}
-                    </span>
-                  </div>
-                  <div>
-                    <p className="text-2xl sm:text-3xl font-black text-slate-700 dark:text-zinc-300 tracking-tight">
-                      {activeExerciseProgression.previousSession.bestWeight} kg
-                    </p>
-                    <p className="text-xs font-bold text-slate-500 mt-0.5">
-                      × {activeExerciseProgression.previousSession.bestReps} repetări
-                    </p>
-                  </div>
-                </div>
+            {/* Exercise-by-Exercise Precision Comparison Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {latestWorkoutAnalysis.exercises.map((ex, exIdx) => {
+                // Algoritm comparare progresie conform cerințelor:
+                // 1. Ghidare în primul rând după numărul de kg
+                // 2. Dacă numărul de kg este egal, ghidare după numărul de repetări
+                let prevColor: "neutral" | "red" | "blue" = "neutral";
+                let curColor: "neutral" | "red" | "blue" = "neutral";
 
-                {/* Sesiunea Curentă (Accent High-Contrast) */}
-                <div className="p-5 rounded-3xl bg-blue-50/50 dark:bg-orange-500/[0.04] border border-blue-200 dark:border-orange-500/20 flex flex-col justify-between shadow-xs">
-                  <div className="mb-2">
-                    <span className="text-[9px] font-black uppercase tracking-wider text-blue-600 dark:text-orange-500 block">
-                      Ultima Dată
-                    </span>
-                    <span className="text-[10px] font-semibold text-slate-400">
-                      {formatDate(activeExerciseProgression.latestSession.date)}
-                    </span>
-                  </div>
-                  <div>
-                    <p className="text-2xl sm:text-3xl font-black text-blue-600 dark:text-orange-500 tracking-tight">
-                      {activeExerciseProgression.latestSession.bestWeight} kg
-                    </p>
-                    <p className="text-xs font-bold text-slate-900 dark:text-white mt-0.5">
-                      × {activeExerciseProgression.latestSession.bestReps} repetări
-                    </p>
-                  </div>
-                </div>
-              </div>
-            ) : null}
+                if (ex.prevSession) {
+                  const prevW = ex.prevSession.bestWeight;
+                  const prevR = ex.prevSession.bestReps;
+                  const curW = ex.currentWeight;
+                  const curR = ex.currentReps;
 
-            {/* Clean Timeline List of Sessions for this exercise */}
-            <div className="pt-1 space-y-2">
-              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-zinc-500 block">
-                Istoric Antrenamente ({activeExerciseProgression.sessions.length}):
-              </span>
-
-              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                {[...activeExerciseProgression.sessions].reverse().map((session, sIdx, arr) => {
-                  const olderSession = arr[sIdx + 1];
-                  let diffLabel = "";
-                  let isPositive = false;
-
-                  if (olderSession) {
-                    const wDiff = Math.round((session.bestWeight - olderSession.bestWeight) * 10) / 10;
-                    const rDiff = session.bestReps - olderSession.bestReps;
-                    if (wDiff > 0) diffLabel = `+${wDiff} kg`;
-                    else if (wDiff < 0) diffLabel = `${wDiff} kg`;
-
-                    if (rDiff > 0) diffLabel += (diffLabel ? ", " : "") + `+${rDiff} reps`;
-                    else if (rDiff < 0) diffLabel += (diffLabel ? ", " : "") + `${rDiff} reps`;
-
-                    if (wDiff === 0 && rDiff === 0) diffLabel = "= Constant";
-                    isPositive = wDiff > 0 || (wDiff === 0 && rDiff > 0);
+                  if (curW > prevW || (curW === prevW && curR > prevR)) {
+                    // Progresie (sesiune precedentă indică mai puțin decât sesiune curentă):
+                    // Sesiunea precedentă = roșu, Sesiunea curentă = albastru
+                    prevColor = "red";
+                    curColor = "blue";
+                  } else if (curW < prevW || (curW === prevW && curR < prevR)) {
+                    // Scădere (sesiune precedentă e mai mult decât în sesiune curentă):
+                    // Sesiunea precedentă = albastru, Sesiunea curentă = roșu
+                    prevColor = "blue";
+                    curColor = "red";
+                  } else {
+                    // Constant / stagnare (rezultat egal):
+                    // Ambele subchenare = culoare neutră
+                    prevColor = "neutral";
+                    curColor = "neutral";
                   }
+                }
 
-                  return (
-                    <div
-                      key={session.workoutId}
-                      className="p-3 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/5 flex items-center justify-between text-xs"
-                    >
-                      <div className="min-w-0 pr-2">
-                        <span className="font-bold text-slate-900 dark:text-white block truncate">
-                          {formatDate(session.date)}
-                        </span>
-                        <span className="text-[10px] text-slate-400 truncate block">
-                          {session.workoutTitle}
+                // Mapare stiluri per stare coloristică
+                const themeStyles = {
+                  red: {
+                    box: "bg-red-50/90 dark:bg-red-950/40 border-red-200/90 dark:border-red-500/30",
+                    title: "text-red-700 dark:text-red-400",
+                    pill: "bg-white/90 dark:bg-red-900/30 border-red-200/80 dark:border-red-500/30",
+                    weight: "text-red-700 dark:text-red-300",
+                    kg: "text-red-600/80 dark:text-red-400",
+                    multiplier: "text-red-300 dark:text-red-500/50",
+                    reps: "text-slate-900 dark:text-white",
+                    repsUnit: "text-slate-500 dark:text-zinc-400",
+                    zeroRef: "text-red-600/80 dark:text-red-400/80 bg-red-100/60 dark:bg-red-900/30",
+                  },
+                  blue: {
+                    box: "bg-blue-50/90 dark:bg-blue-950/40 border-blue-200/90 dark:border-blue-500/30",
+                    title: "text-blue-700 dark:text-blue-400",
+                    pill: "bg-white/90 dark:bg-blue-900/30 border-blue-200/80 dark:border-blue-500/30",
+                    weight: "text-blue-700 dark:text-blue-400",
+                    kg: "text-blue-600/80 dark:text-blue-400",
+                    multiplier: "text-blue-300 dark:text-blue-500/50",
+                    reps: "text-slate-950 dark:text-white",
+                    repsUnit: "text-slate-500 dark:text-zinc-400",
+                    zeroRef: "text-blue-600/80 dark:text-blue-400/80 bg-blue-100/60 dark:bg-blue-900/30",
+                  },
+                  neutral: {
+                    box: "bg-slate-100/80 dark:bg-zinc-800/50 border-slate-200/80 dark:border-white/10",
+                    title: "text-slate-600 dark:text-zinc-400",
+                    pill: "bg-white/90 dark:bg-zinc-700/40 border-slate-200/70 dark:border-white/10",
+                    weight: "text-slate-800 dark:text-zinc-200",
+                    kg: "text-slate-500 dark:text-zinc-400",
+                    multiplier: "text-slate-300 dark:text-zinc-600",
+                    reps: "text-slate-800 dark:text-zinc-200",
+                    repsUnit: "text-slate-500 dark:text-zinc-400",
+                    zeroRef: "text-slate-500 dark:text-zinc-400 bg-slate-200/60 dark:bg-zinc-800/60",
+                  },
+                };
+
+                const prevStyle = themeStyles[prevColor];
+                const curStyle = themeStyles[curColor];
+
+                return (
+                  <div
+                    key={`${ex.exerciseName}-${exIdx}`}
+                    className="min-w-0 p-4 sm:p-6 rounded-[1.5rem] sm:rounded-[1.75rem] bg-slate-50/90 dark:bg-[#19191d] border border-slate-200/90 dark:border-white/[0.08] shadow-xs flex flex-col justify-between gap-4 hover:border-blue-500/40 dark:hover:border-orange-500/40 hover:shadow-md transition-all relative overflow-hidden group"
+                  >
+                    {/* Category Indicator & Status Badge */}
+                    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 min-w-0">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="size-2 rounded-full bg-blue-600 dark:bg-orange-500 shrink-0 shadow-xs" />
+                        <span className="text-xs font-black uppercase tracking-wider text-blue-600 dark:text-orange-400 truncate">
+                          {ex.category}
                         </span>
                       </div>
 
-                      <div className="flex items-center gap-2.5 shrink-0">
-                        <span className="font-black text-slate-900 dark:text-white">
-                          {session.bestWeight} kg × {session.bestReps} reps
+                      {ex.status === "improved" ? (
+                        <span className="inline-flex items-center gap-1.5 text-[10px] font-black px-2.5 py-1 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shrink-0 whitespace-nowrap">
+                          <Sparkles className="size-3" />
+                          {ex.diffWeight > 0 ? `+${ex.diffWeight} kg` : `+${ex.diffReps} reps`} · Progres
                         </span>
+                      ) : ex.status === "maintained" ? (
+                        <span className="inline-flex items-center gap-1.5 text-[10px] font-black px-2.5 py-1 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 shrink-0 whitespace-nowrap">
+                          <CheckCircle2 className="size-3" />
+                          = Constant
+                        </span>
+                      ) : ex.status === "regressed" ? (
+                        <span className="inline-flex items-center gap-1.5 text-[10px] font-black px-2.5 py-1 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 shrink-0 whitespace-nowrap">
+                          <RotateCcw className="size-3" />
+                          {ex.diffWeight < 0 ? `${ex.diffWeight} kg` : `${ex.diffReps} reps`} · Deload
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-black px-2.5 py-1 rounded-xl bg-slate-200/70 dark:bg-zinc-800 text-slate-600 dark:text-zinc-400 shrink-0">
+                          Sesiune nouă
+                        </span>
+                      )}
+                    </div>
 
-                        {diffLabel ? (
-                          <span
-                            className={cn(
-                              "text-[9px] font-black px-2 py-0.5 rounded-lg border",
-                              isPositive
-                                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
-                                : diffLabel === "= Constant"
-                                ? "bg-slate-200/50 dark:bg-zinc-800 text-slate-500 border-transparent"
-                                : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20"
-                            )}
-                          >
-                            {diffLabel}
+                    {/* Exercise Title */}
+                    <div className="space-y-1 min-w-0">
+                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 dark:text-zinc-500 block">
+                        Exercițiu
+                      </span>
+                      <h4 className="text-base sm:text-lg font-black text-slate-950 dark:text-white tracking-tight leading-snug break-words">
+                        {ex.exerciseName}
+                      </h4>
+                    </div>
+
+                    {/* Symmetrical Two-Box Comparison: Anterior vs Curent */}
+                    <div className="pt-3 border-t border-slate-200/80 dark:border-white/5 grid grid-cols-2 gap-2.5 sm:gap-3">
+                      {/* Sesiune Precedentă */}
+                      <div className={`p-2.5 sm:p-3.5 rounded-2xl ${prevStyle.box} flex flex-col items-center justify-between text-center min-w-0 shadow-2xs transition-all`}>
+                        <div className="w-full flex flex-col items-center text-center mb-2 min-w-0">
+                          <span className={`text-[10px] sm:text-[11px] font-black uppercase tracking-wide leading-tight ${prevStyle.title} block text-center whitespace-normal`}>
+                            Sesiune Precedentă
                           </span>
-                        ) : (
-                          <span className="text-[9px] font-bold text-slate-400 uppercase px-1.5 py-0.5 bg-slate-200/50 dark:bg-zinc-800 rounded-md">
-                            Bază
+                        </div>
+
+                        <div className="w-full flex items-center justify-center min-w-0">
+                          {ex.prevSession ? (
+                            <div className={`inline-flex items-center justify-center flex-wrap gap-x-1.5 gap-y-0.5 px-2 sm:px-2.5 py-1.5 rounded-xl ${prevStyle.pill} max-w-full text-center`}>
+                              <div className="inline-flex items-baseline gap-0.5 shrink-0">
+                                <span className={`text-base sm:text-lg font-black ${prevStyle.weight} tracking-tight leading-none`}>
+                                  {ex.prevSession.bestWeight}
+                                </span>
+                                <span className={`text-[10px] font-bold ${prevStyle.kg} uppercase`}>
+                                  kg
+                                </span>
+                              </div>
+                              <span className={`${prevStyle.multiplier} text-xs font-bold select-none shrink-0`}>
+                                ×
+                              </span>
+                              <div className="inline-flex items-baseline gap-0.5 shrink-0">
+                                <span className={`text-sm sm:text-base font-black ${prevStyle.reps} tracking-tight leading-none`}>
+                                  {ex.prevSession.bestReps}
+                                </span>
+                                <span className={`text-[10px] font-medium ${prevStyle.repsUnit} lowercase`}>
+                                  reps
+                                </span>
+                              </div>
+                            </div>
+                          ) : (
+                            <span className={`px-2.5 py-1 rounded-xl text-[10px] sm:text-[11px] font-semibold ${prevStyle.zeroRef} italic text-center`}>
+                              Referință zero
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Sesiune Curentă */}
+                      <div className={`p-2.5 sm:p-3.5 rounded-2xl ${curStyle.box} flex flex-col items-center justify-between text-center min-w-0 shadow-2xs transition-all`}>
+                        <div className="w-full flex flex-col items-center text-center mb-2 min-w-0">
+                          <span className={`text-[10px] sm:text-[11px] font-black uppercase tracking-wide leading-tight ${curStyle.title} block text-center whitespace-normal`}>
+                            Sesiune Curentă
                           </span>
-                        )}
+                        </div>
+
+                        <div className="w-full flex items-center justify-center min-w-0">
+                          <div className={`inline-flex items-center justify-center flex-wrap gap-x-1.5 gap-y-0.5 px-2 sm:px-2.5 py-1.5 rounded-xl ${curStyle.pill} max-w-full text-center`}>
+                            <div className="inline-flex items-baseline gap-0.5 shrink-0">
+                              <span className={`text-base sm:text-lg font-black ${curStyle.weight} tracking-tight leading-none`}>
+                                {ex.currentWeight}
+                              </span>
+                              <span className={`text-[10px] font-bold ${curStyle.kg} uppercase`}>
+                                kg
+                              </span>
+                            </div>
+                            <span className={`${curStyle.multiplier} text-xs font-bold select-none shrink-0`}>
+                              ×
+                            </span>
+                            <div className="inline-flex items-baseline gap-0.5 shrink-0">
+                              <span className={`text-sm sm:text-base font-black ${curStyle.reps} tracking-tight leading-none`}>
+                                {ex.currentReps}
+                              </span>
+                              <span className={`text-[10px] font-medium ${curStyle.repsUnit} lowercase`}>
+                                reps
+                              </span>
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         ) : (
-          <div className="py-8 text-center text-slate-400 text-xs italic">
-            Nu au fost găsite exerciții conform filtrului.
+          <div className="py-10 text-center text-slate-400 dark:text-zinc-500 text-xs italic">
+            Înregistrează antrenamente în Jurnal pentru a vizualiza analiza globală a progresului de la sesiune la sesiune.
           </div>
         )}
       </div>
 
-      {/* TOTAL TONNAGE INTERACTIVE CHART */}
-      <div className="p-7 bg-white dark:bg-[#141414] border border-slate-200/60 dark:border-white/5 rounded-[2.5rem] shadow-xs space-y-5 mx-1">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <BarChart3 className="size-4 text-blue-600 dark:text-orange-500" />
-              <h3 className="font-black text-lg text-slate-950 dark:text-white uppercase tracking-tight leading-none">
-                Evoluție Tonaj per Sesiune
-              </h3>
-            </div>
-            <p className="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-widest mt-1">
-              Volumul total ridicat (greutate × repetări) calculat pentru fiecare antrenament
-            </p>
-          </div>
-
-          {tonnageTrendPct !== null && (
-            <span className={cn(
-              "inline-flex items-center gap-1 text-[10px] font-black px-2.5 py-1 rounded-xl uppercase tracking-wider self-start sm:self-auto",
-              tonnageTrendPct >= 0 
-                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" 
-                : "bg-red-500/10 text-red-600 dark:text-red-400"
-            )}>
-              {tonnageTrendPct >= 0 ? <ArrowUpRight className="size-3" /> : <ArrowDownRight className="size-3" />}
-              {tonnageTrendPct >= 0 ? `+${tonnageTrendPct}% progres` : `${tonnageTrendPct}%`}
-            </span>
-          )}
-        </div>
-
-        {/* Recharts Area Chart */}
-        <div className="h-64 w-full pt-2">
-          {filteredTonnageTimeline.length > 1 ? (
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={filteredTonnageTimeline} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="tonnageGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={theme === "dark" ? "#f97316" : "#2563eb"} stopOpacity={0.4} />
-                    <stop offset="95%" stopColor={theme === "dark" ? "#f97316" : "#2563eb"} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke={theme === "dark" ? "#27272a" : "#f1f5f9"} vertical={false} />
-                <XAxis 
-                  dataKey="date" 
-                  tickFormatter={(d) => formatDate(d)} 
-                  stroke={theme === "dark" ? "#52525b" : "#94a3b8"} 
-                  fontSize={9} 
-                  tickLine={false}
-                />
-                <YAxis 
-                  stroke={theme === "dark" ? "#52525b" : "#94a3b8"} 
-                  fontSize={9} 
-                  tickLine={false}
-                  tickFormatter={(v) => (v >= 1000 ? `${(v / 1000).toFixed(0)}t` : `${v}kg`)}
-                />
-                <Tooltip
-                  content={({ active, payload }) => {
-                    if (active && payload && payload.length) {
-                      const data = payload[0].payload as SessionTonnagePoint;
-                      return (
-                        <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 p-3 rounded-2xl shadow-xl text-xs space-y-1">
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{formatDate(data.date)}</p>
-                          <p className="font-black text-slate-900 dark:text-white">{data.title}</p>
-                          <p className="text-blue-600 dark:text-orange-500 font-black">
-                            Tonaj: {data.totalTonnage.toLocaleString("ro-RO")} kg
-                          </p>
-                          <p className="text-[10px] text-slate-500 dark:text-zinc-400">
-                            Cel mai bun set: {data.topExerciseName} ({data.topExerciseSet})
-                          </p>
-                        </div>
-                      );
-                    }
-                    return null;
-                  }}
-                />
-                <Area 
-                  type="monotone" 
-                  dataKey="totalTonnage" 
-                  stroke={theme === "dark" ? "#f97316" : "#2563eb"} 
-                  strokeWidth={3} 
-                  fillOpacity={1} 
-                  fill="url(#tonnageGradient)" 
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="h-full flex flex-col items-center justify-center text-slate-400 dark:text-zinc-600 text-xs italic">
-              Înregistrează cel puțin 2 antrenamente pentru a genera graficul evoluției tonajului.
-            </div>
-          )}
-        </div>
-      </div>
-
       {/* STRENGTH RECORDS PER MUSCLE GROUP (EXCLUSIV CEL MAI SOLICITANT EXERCIȚIU & RECORDUL MAXIM) */}
-      <div className="p-6 sm:p-7 bg-white dark:bg-[#121214] border border-slate-200/80 dark:border-white/[0.08] rounded-[2.5rem] shadow-sm space-y-5 mx-1">
+      <div className="p-4 sm:p-7 bg-white dark:bg-[#121214] border border-slate-200/80 dark:border-white/[0.08] rounded-[2rem] sm:rounded-[2.5rem] shadow-sm space-y-5 mx-1">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-white/5">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0">
             <div className="size-10 rounded-2xl bg-amber-500/10 dark:bg-amber-400/10 border border-amber-500/20 flex items-center justify-center text-amber-600 dark:text-amber-400 shrink-0">
               <Trophy className="size-5" />
             </div>
-            <div>
-              <h3 className="font-black text-lg sm:text-xl text-slate-950 dark:text-white uppercase tracking-tight leading-tight">
+            <div className="min-w-0">
+              <h3 className="font-black text-base sm:text-xl text-slate-950 dark:text-white uppercase tracking-tight leading-tight break-words">
                 Recorduri de Forță per Grupă Musculară
               </h3>
-              <p className="text-[11px] font-semibold text-slate-500 dark:text-zinc-400 mt-0.5">
+              <p className="text-[11px] font-semibold text-slate-500 dark:text-zinc-400 mt-0.5 break-words">
                 Cel mai solicitant exercițiu și recordul maxim înregistrat pentru fiecare grupă activă
               </p>
             </div>
@@ -1072,16 +939,16 @@ export const EvolutionView = ({
           {muscleGroupStrengthRecords.map((group) => (
             <div
               key={group.category}
-              className="p-5 sm:p-6 rounded-[1.75rem] bg-slate-50/90 dark:bg-[#19191d] border border-slate-200/90 dark:border-white/[0.08] shadow-xs flex flex-col justify-between gap-4 hover:border-blue-500/40 dark:hover:border-orange-500/40 hover:shadow-md transition-all group relative overflow-hidden"
+              className="min-w-0 p-4 sm:p-6 rounded-[1.5rem] sm:rounded-[1.75rem] bg-slate-50/90 dark:bg-[#19191d] border border-slate-200/90 dark:border-white/[0.08] shadow-xs flex flex-col justify-between gap-4 hover:border-blue-500/40 dark:hover:border-orange-500/40 hover:shadow-md transition-all group relative overflow-hidden"
             >
               {/* Subtle ambient accent on hover */}
               <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 dark:bg-orange-500/5 rounded-full blur-2xl pointer-events-none group-hover:bg-blue-500/10 dark:group-hover:bg-orange-500/10 transition-colors" />
 
               {/* Top Row: Full Muscle Group Name & Record Badge */}
-              <div className="flex items-center justify-between gap-3 min-w-0">
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 min-w-0">
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="size-2.5 rounded-full bg-blue-600 dark:bg-orange-500 shrink-0 shadow-xs" />
-                  <span className="text-xs sm:text-sm font-black uppercase tracking-wider text-slate-900 dark:text-zinc-100 break-words">
+                  <span className="min-w-0 text-xs sm:text-sm font-black uppercase tracking-wider text-slate-900 dark:text-zinc-100 break-words">
                     {group.category}
                   </span>
                 </div>
@@ -1102,8 +969,8 @@ export const EvolutionView = ({
               </div>
 
               {/* Bottom Row: Peak Strength Stats (Weight & Reps) */}
-              <div className="pt-3.5 border-t border-slate-200/80 dark:border-white/5 flex items-end justify-between gap-3">
-                <div className="space-y-0.5">
+              <div className="pt-3.5 border-t border-slate-200/80 dark:border-white/5 flex flex-wrap items-end justify-between gap-x-3 gap-y-2">
+                <div className="space-y-0.5 min-w-0">
                   <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500 block">
                     Performanță Maximă
                   </span>
@@ -1111,8 +978,8 @@ export const EvolutionView = ({
                     Sarcina de vârf
                   </span>
                 </div>
-                <div className="text-right shrink-0">
-                  <div className="flex items-baseline gap-1.5 justify-end">
+                <div className="text-right min-w-0 max-w-full">
+                  <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 justify-end">
                     <span className="text-2xl sm:text-3xl font-black text-slate-950 dark:text-white tracking-tight leading-none">
                       {group.peakWeight}
                     </span>

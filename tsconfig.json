@@ -9,6 +9,8 @@
       "DOM",
       "DOM.Iterable"
     ],
+    "strict": true,
+    "types": ["node", "react", "react-dom", "vite/client", "vite-plugin-pwa/client"],
     "skipLibCheck": true,
     "moduleResolution": "bundler",
     "isolatedModules": true,

@@ -24,10 +24,21 @@ import {
 } from "./types";
 import { cn, formatDate } from "./lib/utils";
 import { PurchaseService } from "./services/purchaseService";
+import {
+  loadProgress,
+  loadRoutines,
+  loadWorkouts,
+  mergeCustomExercises,
+  saveRoutines,
+  saveWorkoutData,
+} from "./services/storageService";
 import { UpgradeModal } from "./components/UpgradeModal";
+import { TrialBanner, formatTrialDays } from "./components/TrialBanner";
+import { ProGuard } from "./components/ProGuard";
 import { RestTimer } from "./components/RestTimer";
 import { NutritionView } from "./components/NutritionView";
 import { AiCoachView } from "./components/AiCoachView";
+import { AiCoachSettings } from "./components/AiCoachSettings";
 import { RoutinesView } from "./components/RoutinesView";
 import { ExportModal } from "./components/ExportModal";
 import { HomeView } from "./components/HomeView";
@@ -45,10 +56,10 @@ const Navbar = ({
 }) => {
   const tabs = [
     { id: "home", icon: TrendingUp, label: "Acasă" },
-    { id: "workouts", icon: Dumbbell, label: "Jurnal" },
+    { id: "workouts", icon: Dumbbell, label: "JURNAL" },
     { id: "nutrition", icon: Utensils, label: "Nutriție" },
-    { id: "coach", icon: Sparkles, label: "AI Coach" },
-    { id: "evolution", icon: Activity, label: "Evoluție" },
+    { id: "coach", icon: Sparkles, label: "AI COACH" },
+    { id: "evolution", icon: Activity, label: "EVOLUȚIE" },
   ];
 
   return (
@@ -105,7 +116,7 @@ const WorkoutsView = ({
     <div className="space-y-6 pb-24 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <header className="pt-[calc(env(safe-area-inset-top)+0.75rem)] pb-4 px-6 sticky top-0 bg-[#f4f7f0] dark:bg-[#000000] z-20 border-b border-slate-200 dark:border-white/5 -mx-4 transition-all flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-black tracking-tighter text-slate-950 dark:text-zinc-50 uppercase leading-none">Jurnal.</h1>
+          <h1 className="text-3xl font-black tracking-tighter text-slate-950 dark:text-zinc-50 uppercase leading-none">JURNAL</h1>
           <p className="text-blue-600 dark:text-orange-500 text-[10px] font-black uppercase tracking-[0.4em] mt-1.5 leading-none">Istoric Antrenamente</p>
         </div>
         <div className="flex items-center gap-2">
@@ -197,7 +208,7 @@ const WorkoutsView = ({
 
 // --- Main App Component ---
 
-export default function App() {
+function AppContent() {
   const [activeTab, setActiveTab] = useState("home");
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [progress, setProgress] = useState<ProgressEntry[]>([]);
@@ -215,17 +226,16 @@ export default function App() {
   const [showRestTimer, setShowRestTimer] = useState(false);
 
   useEffect(() => {
-    const savedWorkouts = localStorage.getItem("workouts");
-    const savedProgress = localStorage.getItem("progress");
-    const savedTheme = localStorage.getItem("app-theme") as "light" | "dark";
-    
-    if (savedWorkouts) setWorkouts(JSON.parse(savedWorkouts));
-    if (savedProgress) setProgress(JSON.parse(savedProgress));
-    if (savedTheme) {
-      setTheme(savedTheme);
-    } else {
-      setTheme("dark");
+    setWorkouts(loadWorkouts());
+    setProgress(loadProgress());
+
+    let savedTheme: string | null = null;
+    try {
+      savedTheme = localStorage.getItem("app-theme");
+    } catch {
+      // storage unavailable: keep the default theme
     }
+    setTheme(savedTheme === "light" ? "light" : "dark");
 
     const unsub = PurchaseService.subscribe((lic) => {
       setLicense(lic);
@@ -240,7 +250,11 @@ export default function App() {
     } else {
       document.documentElement.classList.remove('dark');
     }
-    localStorage.setItem("app-theme", theme);
+    try {
+      localStorage.setItem("app-theme", theme);
+    } catch {
+      // storage unavailable: the theme just won't persist
+    }
   }, [theme]);
 
   const toggleTheme = () => {
@@ -248,8 +262,9 @@ export default function App() {
   };
 
   const saveToStorage = (ws: Workout[], ps: ProgressEntry[]) => {
-    localStorage.setItem("workouts", JSON.stringify(ws));
-    localStorage.setItem("progress", JSON.stringify(ps));
+    if (!saveWorkoutData(ws, ps)) {
+      alert("Nu am putut salva datele pe acest dispozitiv (memorie plină sau stocare blocată). Exportă un backup din meniul Cloud ca să nu pierzi progresul.");
+    }
   };
 
   const handleSaveWorkout = (w: Workout) => {
@@ -258,10 +273,24 @@ export default function App() {
 
     if (existingIndex >= 0) {
       const existingWorkout = newWorkouts[existingIndex];
+      const previousEntries = JSON.parse(JSON.stringify(existingWorkout.entries));
+      const hasEntriesChanged = JSON.stringify(previousEntries) !== JSON.stringify(w.entries);
+      
+      const updatedHistory = [...(existingWorkout.history || [])];
+      if (hasEntriesChanged) {
+        // Save the previous session state into history with its historical date so session progression works
+        updatedHistory.push({
+          date: existingWorkout.date,
+          entries: previousEntries,
+        });
+      }
+
       newWorkouts[existingIndex] = {
         ...existingWorkout,
         title: w.title,
+        date: hasEntriesChanged ? new Date().toISOString() : existingWorkout.date,
         entries: JSON.parse(JSON.stringify(w.entries)),
+        history: updatedHistory,
         durationSeconds: w.durationSeconds !== undefined ? w.durationSeconds : existingWorkout.durationSeconds
       };
     } else {
@@ -274,9 +303,8 @@ export default function App() {
     }
 
     try {
-      const savedRoutines = localStorage.getItem("fittrack_routines_v1");
-      if (savedRoutines) {
-        const routinesList: RoutineTemplate[] = JSON.parse(savedRoutines);
+      const routinesList = loadRoutines([]);
+      if (routinesList.length > 0) {
         let routinesUpdated = false;
         const updatedRoutines = routinesList.map(r => {
           if (r.name.trim().toLowerCase() === w.title.trim().toLowerCase()) {
@@ -300,7 +328,7 @@ export default function App() {
         });
 
         if (routinesUpdated) {
-          localStorage.setItem("fittrack_routines_v1", JSON.stringify(updatedRoutines));
+          saveRoutines(updatedRoutines);
           window.dispatchEvent(new Event("routines_updated"));
         }
       }
@@ -316,6 +344,7 @@ export default function App() {
   };
 
   const addWeightEntry = (val: number) => {
+    if (!Number.isFinite(val) || val <= 0 || val >= 500) return;
     const newEntry: ProgressEntry = {
       id: Math.random().toString(36).substr(2, 9),
       date: new Date().toISOString(),
@@ -368,19 +397,21 @@ export default function App() {
               if (navigator.share) {
                 navigator.share({
                   title: "FitTrack Pro",
-                  text: "FitTrack Pro - Aplicație gratuită pentru hipertrofie și jurnal de antrenament!",
+                  text: "FitTrack Pro - Aplicație pentru hipertrofie și jurnal de antrenament!",
                   url: window.location.href,
                 }).catch(() => {});
               } else {
-                navigator.clipboard.writeText(window.location.href);
-                alert("Link-ul FitTrack Pro a fost copiat în clipboard!");
+                navigator.clipboard
+                  ?.writeText(window.location.href)
+                  .then(() => alert("Link-ul FitTrack Pro a fost copiat în clipboard!"))
+                  .catch(() => alert(window.location.href));
               }
             }}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-zinc-900 border border-white/10 text-[10px] font-black uppercase tracking-wider text-zinc-200 hover:text-blue-500 transition-colors cursor-pointer active:scale-95 duration-150"
             title="Distribuie aplicația"
           >
             <Share2 className="size-3.5 text-blue-500 dark:text-orange-500" />
-            <span>Distribuie • Gratuit</span>
+            <span>Distribuie</span>
           </button>
         </div>
 
@@ -409,6 +440,8 @@ export default function App() {
         </div>
       </div>
 
+      <TrialBanner license={license} onBuyClick={() => setShowUpgradeModal(true)} />
+
       {/* Main Content cu padding de jos calibrat */}
       <main className="max-w-lg mx-auto px-4 pb-[calc(env(safe-area-inset-bottom)+7.5rem)]">
         {activeTab === "home" && (
@@ -431,6 +464,7 @@ export default function App() {
             workouts={workouts} 
             onAddWorkout={() => openEditor(null)} 
             onDeleteWorkout={(id) => {
+              if (!window.confirm("Ștergi definitiv acest antrenament?")) return;
               const newWorkouts = workouts.filter(w => w.id !== id);
               setWorkouts(newWorkouts);
               saveToStorage(newWorkouts, progress);
@@ -448,6 +482,7 @@ export default function App() {
 
         {activeTab === "nutrition" && (
           <NutritionView 
+            progress={progress}
             onUpgradeClick={() => setShowUpgradeModal(true)}
           />
         )}
@@ -487,7 +522,6 @@ export default function App() {
               setIsEditing(false);
               setSelectedWorkout(null);
             }} 
-            onSetCompleted={() => setShowRestTimer(true)}
           />
         )}
       </AnimatePresence>
@@ -501,7 +535,7 @@ export default function App() {
                 <h3 className="text-2xl font-black text-slate-950 dark:text-white uppercase tracking-tight">
                   Setări FitTrack
                 </h3>
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Preferințe & Licențiere</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Preferințe, AI & Licențiere</p>
               </div>
               <button
                 onClick={() => setShowSettingsModal(false)}
@@ -517,20 +551,44 @@ export default function App() {
                 <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
                   Status Aplicație
                 </span>
-                <span className="text-[10px] font-black uppercase tracking-wider text-green-600 dark:text-green-400 bg-green-500/10 px-2.5 py-0.5 rounded-full border border-green-500/20">
-                  100% Gratuit • Toate Funcțiile Deblocate
-                </span>
+                {license.tier === "trial" ? (
+                  <span className="text-[10px] font-black uppercase tracking-wider text-orange-500 bg-orange-500/10 px-2.5 py-0.5 rounded-full border border-orange-500/20">
+                    Trial • {formatTrialDays(license.trialDaysLeft ?? 0)}
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-black uppercase tracking-wider text-green-600 dark:text-green-400 bg-green-500/10 px-2.5 py-0.5 rounded-full border border-green-500/20">
+                    Lifetime • Activ
+                  </span>
+                )}
               </div>
 
-              <div className="space-y-1 text-xs">
-                <p className="text-slate-600 dark:text-zinc-400 font-semibold">
-                  Versiune: <span className="font-mono font-bold text-slate-900 dark:text-white">FitTrack Pro Community Edition</span>
-                </p>
-                <p className="text-slate-600 dark:text-zinc-400 font-semibold">
-                  Acces: <span className="font-bold text-slate-900 dark:text-white">Complet Nelimitat</span>
-                </p>
-              </div>
+              {license.tier === "trial" ? (
+                <div className="space-y-3 text-xs">
+                  <p className="text-slate-600 dark:text-zinc-400 font-semibold">
+                    Acces complet gratuit încă{" "}
+                    <span className="font-black text-orange-500">{formatTrialDays(license.trialDaysLeft ?? 0)}</span>.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowSettingsModal(false);
+                      setShowUpgradeModal(true);
+                    }}
+                    className="w-full py-3 rounded-xl bg-orange-500 text-black font-black text-[10px] uppercase tracking-[0.15em] active:scale-95 transition-all cursor-pointer"
+                  >
+                    Cumpără Acces pe Viață
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-1 text-xs">
+                  <p className="text-slate-600 dark:text-zinc-400 font-semibold">
+                    Versiune: <span className="font-mono font-bold text-slate-900 dark:text-white">FitTrack Pro Lifetime</span>
+                  </p>
+                </div>
+              )}
             </div>
+
+            <AiCoachSettings />
 
             {/* Dark Mode Toggle */}
             <div className="flex items-center justify-between p-5 rounded-2xl bg-slate-50 dark:bg-zinc-950/60 border border-slate-200 dark:border-zinc-800">
@@ -638,10 +696,11 @@ export default function App() {
         onClose={() => setShowExportModal(false)}
         workouts={workouts}
         progress={progress}
-        onImportData={(importedW, importedP) => {
+        onImportData={(importedW, importedP, importedCustom) => {
           setWorkouts(importedW);
           setProgress(importedP);
           saveToStorage(importedW, importedP);
+          if (importedCustom.length > 0) mergeCustomExercises(importedCustom);
         }}
         onUpgradeClick={() => {
           setShowExportModal(false);
@@ -655,5 +714,13 @@ export default function App() {
         setActiveTab={setActiveTab} 
       />
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <ProGuard>
+      <AppContent />
+    </ProGuard>
   );
 }

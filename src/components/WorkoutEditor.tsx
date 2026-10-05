@@ -17,9 +17,34 @@ import {
   X
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { Workout, ExerciseEntry, Exercise, Set, PRESET_EXERCISES } from "../types";
+import {
+  Workout,
+  ExerciseEntry,
+  Exercise,
+  Set,
+  OverloadSuggestion,
+  CustomExercise,
+  CustomMuscleGroup,
+  CUSTOM_MUSCLE_GROUPS,
+} from "../types";
 import { cn } from "../lib/utils";
+import {
+  describeOverloadTarget,
+  getOverloadSuggestion,
+  isFromAnotherDay,
+  resetCompletedSets,
+  shouldResetStaleSession,
+  toLocalDayKey,
+} from "../services/algorithmService";
+import { loadCustomExercises, MAX_EXERCISE_NAME_LENGTH } from "../services/storageService";
+import {
+  buildExerciseCatalog,
+  createCustomExercise,
+  deleteCustomExercise,
+  filterExercises,
+} from "../services/exerciseService";
 import { SetRow } from "./SetRow";
+import { RestTimer } from "./RestTimer";
 
 export interface WorkoutEditorProps {
   key?: React.Key;
@@ -30,6 +55,15 @@ export interface WorkoutEditorProps {
   onSetCompleted?: () => void;
 }
 
+const DEFAULT_REST_SECONDS = 90;
+
+/** Deep copy of the workout's entries; a workout from an earlier day starts again with every set unchecked. */
+const buildInitialEntries = (workout?: Workout): ExerciseEntry[] => {
+  if (!workout?.entries) return [];
+  const copy: ExerciseEntry[] = JSON.parse(JSON.stringify(workout.entries));
+  return isFromAnotherDay(workout.date) ? resetCompletedSets(copy) : copy;
+};
+
 export const WorkoutEditor = ({ 
   onSave, 
   onCancel, 
@@ -38,12 +72,32 @@ export const WorkoutEditor = ({
   onSetCompleted 
 }: WorkoutEditorProps) => {
   const [title, setTitle] = useState(initialWorkout?.title || "Antrenament Forță");
-  const [entries, setEntries] = useState<ExerciseEntry[]>(() =>
-    initialWorkout?.entries ? JSON.parse(JSON.stringify(initialWorkout.entries)) : []
+  const [entries, setEntries] = useState<ExerciseEntry[]>(() => buildInitialEntries(initialWorkout));
+  const [showRestTimer, setShowRestTimer] = useState(false);
+  const [restTimerSignal, setRestTimerSignal] = useState(0);
+
+  // A saved workout re-opened on a later day is a new session: its stored sets are last session's history.
+  const isNewDaySession = useMemo(
+    () => !!initialWorkout && isFromAnotherDay(initialWorkout.date),
+    [initialWorkout?.id, initialWorkout?.date]
   );
+  const historyExcludeId = isNewDaySession ? undefined : initialWorkout?.id;
   const [showSearch, setShowSearch] = useState(false);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const listContainerRef = useRef<HTMLDivElement>(null);
+
+  const [customExercises, setCustomExercises] = useState<CustomExercise[]>(() => loadCustomExercises());
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showCustomForm, setShowCustomForm] = useState(false);
+  const [customName, setCustomName] = useState("");
+  const [customGroup, setCustomGroup] = useState<CustomMuscleGroup>(CUSTOM_MUSCLE_GROUPS[0]);
+  const [customError, setCustomError] = useState<string | null>(null);
+
+  const exerciseCatalog = useMemo(() => buildExerciseCatalog(customExercises), [customExercises]);
+  const visibleExercises = useMemo(
+    () => filterExercises(exerciseCatalog, searchQuery),
+    [exerciseCatalog, searchQuery]
+  );
 
   useEffect(() => {
     if (showSearch) {
@@ -51,12 +105,48 @@ export const WorkoutEditor = ({
         listContainerRef.current.scrollTop = 0;
       }
       window.scrollTo(0, 0);
+    } else {
+      setSearchQuery("");
+      setShowCustomForm(false);
     }
   }, [showSearch]);
 
+  const openCustomForm = () => {
+    setCustomName(searchQuery.trim().slice(0, MAX_EXERCISE_NAME_LENGTH));
+    setCustomGroup(CUSTOM_MUSCLE_GROUPS[0]);
+    setCustomError(null);
+    setShowCustomForm(true);
+  };
+
+  const closeCustomForm = () => {
+    setShowCustomForm(false);
+    setCustomError(null);
+  };
+
+  const handleCreateCustomExercise = (e: React.FormEvent) => {
+    e.preventDefault();
+    const result = createCustomExercise(customName, customGroup, customExercises);
+    if ("error" in result) {
+      setCustomError(result.error);
+      return;
+    }
+    setCustomExercises(result.exercises);
+    setSearchQuery("");
+    setShowCustomForm(false);
+    setCustomError(null);
+    if (listContainerRef.current) {
+      listContainerRef.current.scrollTop = 0;
+    }
+  };
+
+  const handleDeleteCustomExercise = (exercise: Exercise) => {
+    if (!window.confirm(`Ștergi exercițiul custom "${exercise.name}"? Antrenamentele salvate nu sunt afectate.`)) return;
+    setCustomExercises(deleteCustomExercise(exercise.id, customExercises));
+  };
+
   useEffect(() => {
     if (initialWorkout?.entries) {
-      setEntries(JSON.parse(JSON.stringify(initialWorkout.entries)));
+      setEntries(buildInitialEntries(initialWorkout));
     }
     if (initialWorkout?.title) {
       setTitle(initialWorkout.title);
@@ -64,7 +154,9 @@ export const WorkoutEditor = ({
   }, [initialWorkout]);
 
   // Track elapsed duration for workout history
-  const [elapsedSeconds, setElapsedSeconds] = useState<number>(initialWorkout?.durationSeconds || 0);
+  const [elapsedSeconds, setElapsedSeconds] = useState<number>(
+    isNewDaySession ? 0 : initialWorkout?.durationSeconds || 0
+  );
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -73,12 +165,38 @@ export const WorkoutEditor = ({
     return () => clearInterval(timer);
   }, []);
 
+  // Editor left open across midnight: on return to the foreground, start a fresh day's session.
+  const sessionDayKeyRef = useRef(toLocalDayKey(Date.now()));
+  const lastActivityRef = useRef(Date.now());
+
+  useEffect(() => {
+    lastActivityRef.current = Date.now();
+  }, [entries]);
+
+  useEffect(() => {
+    const checkNewDay = () => {
+      if (document.visibilityState === "hidden") return;
+      const now = new Date();
+      if (shouldResetStaleSession(sessionDayKeyRef.current, lastActivityRef.current, now)) {
+        sessionDayKeyRef.current = toLocalDayKey(now.getTime());
+        setEntries(prev => resetCompletedSets(prev));
+        setElapsedSeconds(0);
+      }
+    };
+    document.addEventListener("visibilitychange", checkNewDay);
+    window.addEventListener("focus", checkNewDay);
+    return () => {
+      document.removeEventListener("visibilitychange", checkNewDay);
+      window.removeEventListener("focus", checkNewDay);
+    };
+  }, []);
+
   // Historical PR Lookup: calculate user's historical 1RM per exercise
   const historicalBest1RM = useMemo(() => {
     const map = new Map<string, number>();
     
     // We scan all workouts except the current one being edited
-    const workoutsToScan = allWorkouts.filter(w => w.id !== initialWorkout?.id);
+    const workoutsToScan = allWorkouts.filter(w => w.id !== historyExcludeId);
 
     workoutsToScan.forEach(w => {
       // Also scan snapshots in history if present
@@ -104,7 +222,23 @@ export const WorkoutEditor = ({
     });
 
     return map;
-  }, [allWorkouts, initialWorkout]);
+  }, [allWorkouts, historyExcludeId]);
+
+  // Progressive overload targets, recomputed only when the exercise list or history changes
+  const exerciseSignature = entries.map(e => `${e.id}:${e.exerciseId}:${e.name}`).join("|");
+  const overloadByEntry = useMemo(() => {
+    const map = new Map<string, OverloadSuggestion | null>();
+    entries.forEach(entry => {
+      map.set(
+        entry.id,
+        getOverloadSuggestion(entry.name, allWorkouts, {
+          exerciseId: entry.exerciseId,
+          excludeWorkoutId: historyExcludeId,
+        })
+      );
+    });
+    return map;
+  }, [exerciseSignature, allWorkouts, historyExcludeId]);
 
   // Check if a specific completed set is a new PR
   const checkIsPR = (entry: ExerciseEntry, targetSet: Set): boolean => {
@@ -131,35 +265,36 @@ export const WorkoutEditor = ({
   };
 
   const addExercise = (ex: Exercise) => {
+    const customMatch = ex.isCustom ? customExercises.find(c => c.id === ex.id) : undefined;
     const newEntry: ExerciseEntry = {
       id: Math.random().toString(36).substring(2, 9),
       exerciseId: ex.id,
       name: ex.name,
-      sets: [{ id: "1", weight: 20, reps: 10, completed: false, rpe: 8 }]
+      sets: [{ id: "1", weight: customMatch?.muscleGroup === "Cardio" ? 0 : 20, reps: 10, completed: false, rpe: 8 }],
+      ...(customMatch ? { muscleGroup: customMatch.muscleGroup } : {})
     };
     setEntries(prev => [...prev, newEntry]);
     setShowSearch(false);
   };
 
   const updateSet = (entryId: string, setId: string, updates: Partial<Set>) => {
-    setEntries(prev => prev.map(e => {
-      if (e.id === entryId) {
-        return {
-          ...e,
-          sets: e.sets.map(s => {
-            if (s.id === setId) {
-              const updated = { ...s, ...updates };
-              // Trigger rest timer if set marked as completed
-              if (updates.completed === true && !s.completed && onSetCompleted) {
-                onSetCompleted();
-              }
-              return updated;
-            }
-            return s;
-          })
-        };
+    if (updates.completed === true) {
+      const wasCompleted = entries
+        .find(e => e.id === entryId)
+        ?.sets.find(s => s.id === setId)?.completed;
+      if (!wasCompleted) {
+        setRestTimerSignal(n => n + 1);
+        setShowRestTimer(true);
+        onSetCompleted?.();
       }
-      return e;
+    }
+
+    setEntries(prev => prev.map(e => {
+      if (e.id !== entryId) return e;
+      return {
+        ...e,
+        sets: e.sets.map(s => (s.id === setId ? { ...s, ...updates } : s))
+      };
     }));
   };
 
@@ -306,6 +441,7 @@ export const WorkoutEditor = ({
       <div className="flex-1 overflow-y-auto p-4 space-y-6 pb-28 no-scrollbar">
         {entries.map((entry, index) => {
           const hasAnyPR = entry.sets.some(s => checkIsPR(entry, s));
+          const overload = overloadByEntry.get(entry.id) ?? null;
 
           return (
             <div 
@@ -360,15 +496,26 @@ export const WorkoutEditor = ({
                     </button>
                   </div>
 
-                  <h4 className="font-black text-slate-950 dark:text-orange-500 text-xs uppercase tracking-[0.2em] truncate">
-                    {entry.name}
-                  </h4>
-                  {hasAnyPR && (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-[9px] font-black uppercase tracking-wider shrink-0 animate-pulse">
-                      <Trophy className="size-3" />
-                      Record Nou!
-                    </span>
-                  )}
+                  <div className="min-w-0 flex-1">
+                    <h4 className="font-black text-slate-950 dark:text-orange-500 text-xs uppercase tracking-[0.2em] leading-snug break-words">
+                      {entry.name}
+                    </h4>
+                    <p
+                      className="mt-1 flex items-start gap-1 text-xs font-semibold text-slate-500 dark:text-zinc-400"
+                      title={overload?.label}
+                    >
+                      <Zap className="size-3 mt-0.5 text-orange-500 shrink-0" />
+                      <span className="min-w-0 break-words">
+                        {overload ? describeOverloadTarget(overload) : "Stabilește greutatea de referință"}
+                      </span>
+                    </p>
+                    {hasAnyPR && (
+                      <span className="mt-1.5 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-[9px] font-black uppercase tracking-wider animate-pulse">
+                        <Trophy className="size-3" />
+                        Record Nou!
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <button 
                   onClick={() => removeEntry(entry.id)} 
@@ -469,6 +616,13 @@ export const WorkoutEditor = ({
         </button>
       </footer>
 
+      <RestTimer
+        isOpen={showRestTimer}
+        onClose={() => setShowRestTimer(false)}
+        initialSeconds={DEFAULT_REST_SECONDS}
+        startSignal={restTimerSignal}
+      />
+
       {/* Exercise Search Bottom Sheet / Modal */}
       <AnimatePresence>
         {showSearch && (
@@ -493,7 +647,7 @@ export const WorkoutEditor = ({
               </div>
             </div>
 
-            <div className="relative mb-6 px-2">
+            <div className="relative mb-4 px-2">
               <Search className="absolute left-7 top-1/2 -translate-y-1/2 size-5 text-slate-400 dark:text-zinc-400" />
               <input 
                 type="text"
@@ -506,46 +660,178 @@ export const WorkoutEditor = ({
                 inputMode="search"
                 data-form-type="other"
                 placeholder="Caută după nume sau grupă musculară..." 
-                className="w-full bg-white dark:bg-black/40 border border-slate-200 dark:border-white/5 rounded-[1.5rem] py-4 pl-14 pr-6 text-sm focus:outline-none focus:ring-4 focus:ring-blue-600/10 text-black dark:text-white font-bold transition-all shadow-xs placeholder:text-slate-300"
-                onChange={(e) => {
-                  const term = e.target.value.toLowerCase();
-                  const elements = document.querySelectorAll(".search-exercise-item");
-                  elements.forEach((el) => {
-                    const name = el.getAttribute("data-name")?.toLowerCase() || "";
-                    const category = el.getAttribute("data-category")?.toLowerCase() || "";
-                    const isCategoryMatch = category.includes(term) && term.length >= 3;
-                    
-                    if (name.includes(term) || isCategoryMatch) {
-                      (el as HTMLElement).style.display = "flex";
-                    } else {
-                      (el as HTMLElement).style.display = "none";
-                    }
-                  });
-                }}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-white dark:bg-black/40 border border-slate-200 dark:border-white/5 rounded-[1.5rem] py-4 pl-14 pr-6 text-sm focus:outline-none focus:ring-4 focus:ring-blue-600/10 dark:focus:ring-orange-500/20 text-black dark:text-white font-bold transition-all shadow-xs placeholder:text-slate-300"
               />
+            </div>
+
+            <div className="px-2 mb-4">
+              <button
+                type="button"
+                onClick={openCustomForm}
+                className="w-full h-14 rounded-[1.5rem] border-2 border-dashed border-blue-600/40 dark:border-orange-500/50 bg-blue-600/5 dark:bg-orange-500/10 text-blue-600 dark:text-orange-500 font-black text-xs uppercase tracking-[0.2em] active:scale-98 hover:bg-blue-600/10 dark:hover:bg-orange-500/15 transition-all cursor-pointer"
+              >
+                + Adaugă Exercițiu Custom
+              </button>
             </div>
 
             <div 
               ref={listContainerRef}
               className="space-y-3 overflow-y-auto pb-12 no-scrollbar px-2 flex-1 overscroll-contain"
             >
-              {PRESET_EXERCISES.map(ex => (
-                <button
-                  type="button"
+              {visibleExercises.map(ex => (
+                <div
                   key={ex.id}
-                  onClick={() => addExercise(ex)}
-                  className="search-exercise-item w-full flex items-center justify-between p-6 bg-white dark:bg-[#1e1e1e] border border-slate-200 dark:border-white/5 rounded-[2rem] hover:bg-slate-50 dark:hover:bg-white/10 transition-all group shadow-xs hover:shadow-sm cursor-pointer"
-                  data-name={ex.name}
-                  data-category={ex.category}
+                  className="w-full flex items-stretch bg-white dark:bg-[#1e1e1e] border border-slate-200 dark:border-white/5 rounded-[2rem] overflow-hidden shadow-xs hover:shadow-sm transition-all"
                 >
-                  <div className="text-left pointer-events-none">
-                    <p className="font-black text-black dark:text-white text-base tracking-tight leading-none">{ex.name}</p>
-                    <p className="text-blue-600 dark:text-orange-500 text-[10px] font-black uppercase tracking-[0.3em] mt-2 leading-none">{ex.category}</p>
-                  </div>
-                  <ChevronRight className="size-5 text-slate-300 dark:text-zinc-700 group-hover:text-blue-600 group-hover:translate-x-1 transition-all pointer-events-none" />
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => addExercise(ex)}
+                    className="group flex-1 min-w-0 flex items-center justify-between gap-3 p-6 text-left hover:bg-slate-50 dark:hover:bg-white/10 transition-colors cursor-pointer"
+                  >
+                    <div className="text-left pointer-events-none min-w-0">
+                      <p className="font-black text-black dark:text-white text-base tracking-tight leading-snug break-words">{ex.name}</p>
+                      <p className="text-blue-600 dark:text-orange-500 text-[10px] font-black uppercase tracking-[0.3em] mt-2 leading-none flex items-center gap-2">
+                        <span>{ex.category}</span>
+                        {ex.isCustom && (
+                          <span className="px-1.5 py-0.5 rounded-md bg-blue-600/10 dark:bg-orange-500/15 tracking-widest text-[9px]">Custom</span>
+                        )}
+                      </p>
+                    </div>
+                    <ChevronRight className="size-5 shrink-0 text-slate-300 dark:text-zinc-700 group-hover:text-blue-600 dark:group-hover:text-orange-500 group-hover:translate-x-1 transition-all pointer-events-none" />
+                  </button>
+                  {ex.isCustom && (
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteCustomExercise(ex)}
+                      className="px-4 border-l border-slate-100 dark:border-white/5 text-slate-300 dark:text-zinc-600 hover:text-red-500 transition-colors cursor-pointer"
+                      title="Șterge exercițiul custom"
+                      aria-label={`Șterge exercițiul custom ${ex.name}`}
+                    >
+                      <Trash2 className="size-4 pointer-events-none" />
+                    </button>
+                  )}
+                </div>
               ))}
+
+              {visibleExercises.length === 0 && (
+                <div className="py-12 text-center space-y-1">
+                  <p className="text-sm font-black text-slate-500 dark:text-zinc-400">
+                    Niciun exercițiu găsit pentru „{searchQuery.trim()}”.
+                  </p>
+                  <p className="text-xs font-semibold text-slate-400 dark:text-zinc-600">
+                    Creează-l cu butonul „+ Adaugă Exercițiu Custom”.
+                  </p>
+                </div>
+              )}
             </div>
+
+            {/* Custom exercise form */}
+            <AnimatePresence>
+              {showCustomForm && (
+                <motion.div
+                  key="custom-exercise-form"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="fixed inset-0 z-[130] flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-xs p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]"
+                  onClick={closeCustomForm}
+                >
+                  <motion.form
+                    initial={{ y: 40, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    exit={{ y: 40, opacity: 0 }}
+                    transition={{ type: "spring", damping: 30, stiffness: 380 }}
+                    onSubmit={handleCreateCustomExercise}
+                    onClick={(e) => e.stopPropagation()}
+                    className="w-full max-w-md bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-[2rem] p-6 space-y-5 shadow-2xl"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h3 className="text-xl font-black text-slate-950 dark:text-white uppercase tracking-tight leading-none">
+                          Exercițiu Custom
+                        </h3>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-blue-600 dark:text-orange-500 mt-1.5">
+                          Se salvează pe acest dispozitiv
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={closeCustomForm}
+                        className="p-2 rounded-full bg-slate-100 dark:bg-zinc-800 text-slate-400 hover:text-slate-700 dark:hover:text-white transition-colors cursor-pointer shrink-0"
+                        aria-label="Închide formularul"
+                      >
+                        <X className="size-4 pointer-events-none" />
+                      </button>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label htmlFor="custom-exercise-name" className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-zinc-500">
+                        Nume Exercițiu
+                      </label>
+                      <input
+                        id="custom-exercise-name"
+                        type="text"
+                        autoFocus
+                        autoComplete="off"
+                        maxLength={MAX_EXERCISE_NAME_LENGTH}
+                        placeholder="ex: Împins la mașina Hammer"
+                        value={customName}
+                        onChange={(e) => {
+                          setCustomName(e.target.value);
+                          if (customError) setCustomError(null);
+                        }}
+                        aria-invalid={customError !== null}
+                        className="w-full h-14 px-4 rounded-2xl bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-white/10 text-base font-bold text-slate-900 dark:text-white placeholder:text-slate-300 dark:placeholder:text-zinc-600 focus:outline-none focus:border-blue-600 dark:focus:border-orange-500 focus:ring-4 focus:ring-blue-600/10 dark:focus:ring-orange-500/20 transition-all"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label htmlFor="custom-exercise-group" className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-zinc-500">
+                        Grupă Musculară
+                      </label>
+                      <div className="relative">
+                        <select
+                          id="custom-exercise-group"
+                          value={customGroup}
+                          onChange={(e) => setCustomGroup(e.target.value as CustomMuscleGroup)}
+                          className="w-full h-14 pl-4 pr-12 appearance-none rounded-2xl bg-slate-50 dark:bg-black/50 border border-slate-200 dark:border-white/10 text-base font-bold text-slate-900 dark:text-white focus:outline-none focus:border-blue-600 dark:focus:border-orange-500 focus:ring-4 focus:ring-blue-600/10 dark:focus:ring-orange-500/20 transition-all cursor-pointer"
+                        >
+                          {CUSTOM_MUSCLE_GROUPS.map(group => (
+                            <option key={group} value={group}>{group}</option>
+                          ))}
+                        </select>
+                        <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 size-5 text-slate-400 dark:text-zinc-500 pointer-events-none" />
+                      </div>
+                    </div>
+
+                    {customError && (
+                      <p role="alert" className="text-xs font-bold text-red-500">
+                        {customError}
+                      </p>
+                    )}
+
+                    <div className="flex items-center gap-3 pt-1">
+                      <button
+                        type="button"
+                        onClick={closeCustomForm}
+                        className="flex-1 h-14 rounded-2xl bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 text-slate-600 dark:text-zinc-300 font-black text-xs uppercase tracking-wider transition-all active:scale-95 cursor-pointer"
+                      >
+                        Anulează
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={!customName.trim()}
+                        className="flex-1 h-14 rounded-2xl bg-blue-600 dark:bg-orange-500 hover:bg-blue-700 dark:hover:bg-orange-600 text-white dark:text-black font-black text-xs uppercase tracking-wider shadow-lg shadow-blue-600/20 dark:shadow-orange-500/20 transition-all active:scale-95 cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
+                      >
+                        Salvează
+                      </button>
+                    </div>
+                  </motion.form>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.div>
         )}
       </AnimatePresence>

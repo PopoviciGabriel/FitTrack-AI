@@ -23,10 +23,12 @@ import {
   MessageSquare,
   Lightbulb
 } from "lucide-react";
-import { Workout } from "../types";
+import { ChatMessage, Workout } from "../types";
 import { ProGuard } from "./ProGuard";
-import { analyzeWorkoutVolume, askAiCoachQuestion } from "../services/geminiService";
-import { cn, formatDate } from "../lib/utils";
+import { analyzeWorkoutVolume, askAiCoachQuestion, formatAnalysisSummary, getAiErrorMessage } from "../services/geminiService";
+import { loadChatMessages, saveChatMessages } from "../services/storageService";
+import { cn, formatDate, formatWeekdayDate } from "../lib/utils";
+import { buildDailySessions, toLocalDayKey } from "../services/algorithmService";
 
 interface AiCoachViewProps {
   workouts: Workout[];
@@ -54,6 +56,9 @@ export const PROGRESSIVE_OVERLOAD_PRINCIPLES = [
 
 interface FlatSession {
   date: string;
+  /** Local calendar day, YYYY-MM-DD. */
+  dayKey: string;
+  title: string;
   timestamp: number;
   entries: {
     name: string;
@@ -61,44 +66,33 @@ interface FlatSession {
   }[];
 }
 
+interface ExerciseDayPoint {
+  date: string;
+  bestWeight: number;
+  bestReps: number;
+  sessionVolume: number;
+}
+
+/**
+ * One session per workout per calendar day (the last saved state of that day),
+ * oldest first. Several edits made on the same day count as a single session.
+ */
 function extractAllSessions(workouts: Workout[]): FlatSession[] {
-  const sessions: FlatSession[] = [];
-
-  workouts.forEach((w) => {
-    if (w.history && w.history.length > 0) {
-      w.history.forEach((h) => {
-        sessions.push({
-          date: h.date,
-          timestamp: new Date(h.date).getTime() || 0,
-          entries: h.entries.map((e) => ({
-            name: e.name,
-            sets: e.sets.map((s) => ({
-              weight: s.weight || 0,
-              reps: s.reps || 0,
-              completed: s.completed,
-              rpe: s.rpe,
-            })),
-          })),
-        });
-      });
-    }
-
-    sessions.push({
-      date: w.date,
-      timestamp: new Date(w.date).getTime() || 0,
-      entries: w.entries.map((e) => ({
-        name: e.name,
-        sets: e.sets.map((s) => ({
-          weight: s.weight || 0,
-          reps: s.reps || 0,
-          completed: s.completed,
-          rpe: s.rpe,
-        })),
+  return buildDailySessions(workouts).map((session) => ({
+    date: session.date,
+    dayKey: session.dayKey,
+    title: session.title,
+    timestamp: session.timestamp,
+    entries: session.entries.map((e) => ({
+      name: e.name,
+      sets: e.sets.map((s) => ({
+        weight: s.weight || 0,
+        reps: s.reps || 0,
+        completed: s.completed,
+        rpe: s.rpe,
       })),
-    });
-  });
-
-  return sessions.sort((a, b) => a.timestamp - b.timestamp);
+    })),
+  }));
 }
 
 function getMuscleCategory(name: string): string {
@@ -118,7 +112,7 @@ function getMuscleCategory(name: string): string {
   if (n.includes("squat") || n.includes("leg") || n.includes("lunge") || n.includes("calf") || n.includes("genuflex") || n.includes("presa") || n.includes("adduct") || n.includes("aductor") || n.includes("hamstring") || n.includes("glute") || n.includes("thrust") || n.includes("tibialis")) {
     return "Picioare (Quads & Hams)";
   }
-  if (n.includes("ab") || n.includes("crunch") || n.includes("plank") || n.includes("core") || n.includes("woodchopper")) {
+  if (/\babs?\b/.test(n) || n.includes("abdom") || n.includes("crunch") || n.includes("plank") || n.includes("core") || n.includes("woodchopper")) {
     return "Abdomen & Core";
   }
   return "Spate (Back)";
@@ -138,34 +132,9 @@ export const AiCoachView: React.FC<AiCoachViewProps> = ({ workouts, onUpgradeCli
   const [activeCategory, setActiveCategory] = useState<string>("all");
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  interface ChatMessage {
-    id: string;
-    role: "user" | "assistant";
-    text: string;
-    timestamp: string;
-  }
-
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() => {
-    const saved = localStorage.getItem("fittrack_ai_expert_chat");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      } catch (e) {
-        console.warn("Could not load chat history", e);
-      }
-    }
-    const legacyAnswer = localStorage.getItem("fittrack_last_coach_answer");
-    if (legacyAnswer) {
-      return [
-        {
-          id: "welcome-1",
-          role: "assistant",
-          text: legacyAnswer,
-          timestamp: new Date().toLocaleTimeString("ro-RO", { hour: "2-digit", minute: "2-digit" }),
-        },
-      ];
-    }
+    const stored = loadChatMessages();
+    if (stored.length > 0) return stored;
     return [
       {
         id: "welcome-init",
@@ -179,7 +148,7 @@ export const AiCoachView: React.FC<AiCoachViewProps> = ({ workouts, onUpgradeCli
   const [questionLoading, setQuestionLoading] = useState(false);
 
   useEffect(() => {
-    localStorage.setItem("fittrack_ai_expert_chat", JSON.stringify(chatMessages));
+    saveChatMessages(chatMessages);
   }, [chatMessages]);
 
   const flatSessions = useMemo(() => extractAllSessions(workouts), [workouts]);
@@ -236,10 +205,10 @@ export const AiCoachView: React.FC<AiCoachViewProps> = ({ workouts, onUpgradeCli
     // Decay recovery bonus based on hours since last workout
     if (hoursSinceLast < 18) {
       fatigue += 12; // Very recent session
-    } else if (hoursSinceLast >= 48) {
-      fatigue -= 18; // 2 days rest
     } else if (hoursSinceLast >= 72) {
       fatigue -= 28; // 3+ days rest
+    } else if (hoursSinceLast >= 48) {
+      fatigue -= 18; // 2 days rest
     }
 
     const score = Math.max(20, Math.min(100, Math.round(100 - fatigue)));
@@ -279,14 +248,34 @@ export const AiCoachView: React.FC<AiCoachViewProps> = ({ workouts, onUpgradeCli
     };
   }, [flatSessions]);
 
+  // Session the stagnation analysis refers to: the latest day that is not in the future.
+  const currentSession = useMemo(() => {
+    const today = toLocalDayKey(Date.now());
+    const pastSessions = flatSessions.filter((s) => s.dayKey <= today);
+    if (pastSessions.length === 0) return null;
+
+    const referenceDayKey = pastSessions.reduce(
+      (latest, s) => (s.dayKey > latest ? s.dayKey : latest),
+      pastSessions[0].dayKey
+    );
+    const sameDay = pastSessions.filter((s) => s.dayKey === referenceDayKey);
+    return {
+      dayKey: referenceDayKey,
+      isToday: referenceDayKey === today,
+      label: [...new Set(sameDay.map((s) => s.title))].join(" + "),
+      exerciseNames: sameDay.flatMap((s) => s.entries.map((e) => e.name.trim())),
+    };
+  }, [flatSessions]);
+
   // 2. Real Stagnation Detection & Actionable Solution Generator
   const stagnationData = useMemo(() => {
-    const exerciseHistory = new Map<
-      string,
-      { date: string; bestWeight: number; bestReps: number; sessionVolume: number }[]
-    >();
+    // One data point per exercise per calendar day, so same-day edits can never
+    // pose as "sessions" when checking whether performance has plateaued.
+    const exerciseDays = new Map<string, Map<string, ExerciseDayPoint>>();
 
+    const todayKey = toLocalDayKey(Date.now());
     flatSessions.forEach((session) => {
+      if (session.dayKey > todayKey) return;
       session.entries.forEach((e) => {
         const cleanName = e.name.trim();
         const validSets = e.sets.filter((s) => s.completed || s.weight > 0 || s.reps > 0);
@@ -306,16 +295,19 @@ export const AiCoachView: React.FC<AiCoachViewProps> = ({ workouts, onUpgradeCli
           }
         });
 
-        const list = exerciseHistory.get(cleanName) || [];
-        list.push({
+        const days = exerciseDays.get(cleanName) ?? new Map<string, ExerciseDayPoint>();
+        days.set(session.dayKey, {
           date: session.date,
           bestWeight: bestW,
           bestReps: bestR,
           sessionVolume: vol,
         });
-        exerciseHistory.set(cleanName, list);
+        exerciseDays.set(cleanName, days);
       });
     });
+
+    const exerciseHistory = new Map<string, ExerciseDayPoint[]>();
+    exerciseDays.forEach((days, name) => exerciseHistory.set(name, [...days.values()]));
 
     const stagnantExercises: {
       exerciseName: string;
@@ -394,23 +386,36 @@ export const AiCoachView: React.FC<AiCoachViewProps> = ({ workouts, onUpgradeCli
       }
     });
 
-    return stagnantExercises;
-  }, [flatSessions]);
+    // Only report plateaus for what was trained in the current session: today's, or the last finished one.
+    // A workout scheduled for a future day must never be analysed.
+    if (!currentSession) return [];
+    const currentExerciseNames = new Set(currentSession.exerciseNames);
+    return stagnantExercises.filter((st) => currentExerciseNames.has(st.exerciseName));
+  }, [flatSessions, currentSession]);
 
   // Run Live Gemini Analysis
   const handleRunAiAnalysis = async () => {
     setAiLoading(true);
     try {
-      await analyzeWorkoutVolume(workouts);
+      const analysis = await analyzeWorkoutVolume(workouts);
       const newMsg: ChatMessage = {
         id: `analysis-${Date.now()}`,
         role: "assistant",
-        text: "Analiză AI completată! Starea sistemului nervos central și eventualele stagnări au fost evaluate conform celor mai recente principii de periodizare și recuperare sportivă. Verifică secțiunile SNC & Refacere și Stagnări!",
+        text: formatAnalysisSummary(analysis),
         timestamp: new Date().toLocaleTimeString("ro-RO", { hour: "2-digit", minute: "2-digit" }),
       };
       setChatMessages((prev) => [...prev, newMsg]);
     } catch (e) {
       console.error(e);
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: `error-${Date.now()}`,
+          role: "assistant",
+          text: getAiErrorMessage(e),
+          timestamp: new Date().toLocaleTimeString("ro-RO", { hour: "2-digit", minute: "2-digit" }),
+        },
+      ]);
     } finally {
       setAiLoading(false);
     }
@@ -443,13 +448,22 @@ export const AiCoachView: React.FC<AiCoachViewProps> = ({ workouts, onUpgradeCli
       setChatMessages((prev) => [...prev, assistantMsg]);
     } catch (e) {
       console.error(e);
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: `error-${Date.now()}`,
+          role: "assistant",
+          text: getAiErrorMessage(e),
+          timestamp: new Date().toLocaleTimeString("ro-RO", { hour: "2-digit", minute: "2-digit" }),
+        },
+      ]);
     } finally {
       setQuestionLoading(false);
     }
   };
 
   const handleCopyText = (text: string, id: string) => {
-    navigator.clipboard?.writeText(text);
+    navigator.clipboard?.writeText(text).catch(() => undefined);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
   };
@@ -469,12 +483,12 @@ export const AiCoachView: React.FC<AiCoachViewProps> = ({ workouts, onUpgradeCli
   return (
     <div className="space-y-6 pb-28 animate-in fade-in slide-in-from-bottom-4 duration-500 select-none">
       {/* Top Sticky Header */}
-      <header className="pt-[calc(env(safe-area-inset-top)+1rem)] pb-4 px-6 sticky top-0 bg-[#f4f7f0] dark:bg-[#000000] z-20 border-b border-slate-200 dark:border-white/5 -mx-4 transition-all flex justify-between items-center">
-        <div>
+      <header className="pt-[calc(env(safe-area-inset-top)+1rem)] pb-4 px-6 sticky top-0 bg-[#f4f7f0] dark:bg-[#000000] z-20 border-b border-slate-200 dark:border-white/5 -mx-4 transition-all flex justify-between items-center gap-3">
+        <div className="min-w-0">
           <h1 className="text-3xl font-black tracking-tighter text-slate-950 dark:text-zinc-50 uppercase leading-none">
-            AI Coach.
+            AI COACH
           </h1>
-          <p className="text-blue-600 dark:text-orange-500 text-[10px] font-black uppercase tracking-[0.4em] mt-1.5 leading-none">
+          <p className="text-blue-600 dark:text-orange-500 text-[10px] font-black uppercase tracking-[0.2em] min-[400px]:tracking-[0.3em] sm:tracking-[0.4em] mt-1.5 leading-snug break-words">
             Sports Science & Readiness Engine
           </p>
         </div>
@@ -482,7 +496,7 @@ export const AiCoachView: React.FC<AiCoachViewProps> = ({ workouts, onUpgradeCli
         <button
           onClick={handleRunAiAnalysis}
           disabled={aiLoading || !hasWorkouts}
-          className="p-3 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl text-blue-600 dark:text-orange-500 cursor-pointer disabled:opacity-40 shadow-xs active:scale-95 transition-transform flex items-center gap-1.5"
+          className="shrink-0 p-3 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl text-blue-600 dark:text-orange-500 cursor-pointer disabled:opacity-40 shadow-xs active:scale-95 transition-transform flex items-center gap-1.5"
           title="Reanalizează cu Gemini 3.8 Flash"
         >
           <RefreshCw className={cn("size-4", aiLoading && "animate-spin")} />
@@ -494,31 +508,31 @@ export const AiCoachView: React.FC<AiCoachViewProps> = ({ workouts, onUpgradeCli
         {hasWorkouts ? (
           <div className="space-y-5 px-1">
             {/* Quick Segmented Menu Filter (3 Clean Tabs) */}
-            <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-200/70 dark:bg-zinc-900/90 rounded-2xl border border-slate-200 dark:border-white/5 text-[10px] font-black uppercase tracking-wider">
+            <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-200/70 dark:bg-zinc-900/90 rounded-2xl border border-slate-200 dark:border-white/5 text-[9px] min-[400px]:text-[10px] font-black uppercase tracking-wide sm:tracking-wider">
               <button
                 onClick={() => setActiveTab("readiness")}
                 className={cn(
-                  "py-2.5 rounded-xl transition-all cursor-pointer flex flex-col items-center justify-center gap-1",
+                  "min-w-0 px-1 py-2.5 rounded-xl transition-all cursor-pointer flex flex-col items-center justify-center gap-1",
                   activeTab === "readiness"
                     ? "bg-white dark:bg-zinc-800 text-blue-600 dark:text-orange-500 shadow-xs"
                     : "text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white"
                 )}
               >
                 <Zap className="size-3.5" />
-                <span>SNC & Refacere</span>
+                <span className="text-center leading-tight">SNC & Refacere</span>
               </button>
 
               <button
                 onClick={() => setActiveTab("stagnation")}
                 className={cn(
-                  "py-2.5 rounded-xl transition-all cursor-pointer flex flex-col items-center justify-center gap-1 relative",
+                  "min-w-0 px-1 py-2.5 rounded-xl transition-all cursor-pointer flex flex-col items-center justify-center gap-1 relative",
                   activeTab === "stagnation"
                     ? "bg-white dark:bg-zinc-800 text-blue-600 dark:text-orange-500 shadow-xs"
                     : "text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white"
                 )}
               >
                 <AlertTriangle className="size-3.5" />
-                <span>Stagnări ({stagnationData.length})</span>
+                <span className="text-center leading-tight">Stagnări ({stagnationData.length})</span>
                 {stagnationData.length > 0 && (
                   <span className="absolute top-1 right-2 size-2 bg-amber-500 rounded-full" />
                 )}
@@ -527,14 +541,14 @@ export const AiCoachView: React.FC<AiCoachViewProps> = ({ workouts, onUpgradeCli
               <button
                 onClick={() => setActiveTab("assistant")}
                 className={cn(
-                  "py-2.5 rounded-xl transition-all cursor-pointer flex flex-col items-center justify-center gap-1",
+                  "min-w-0 px-1 py-2.5 rounded-xl transition-all cursor-pointer flex flex-col items-center justify-center gap-1",
                   activeTab === "assistant"
                     ? "bg-white dark:bg-zinc-800 text-blue-600 dark:text-orange-500 shadow-xs"
                     : "text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white"
                 )}
               >
                 <Brain className="size-3.5" />
-                <span>AI Expert</span>
+                <span className="text-center leading-tight">AI Expert</span>
               </button>
             </div>
 
@@ -542,16 +556,16 @@ export const AiCoachView: React.FC<AiCoachViewProps> = ({ workouts, onUpgradeCli
             {activeTab === "readiness" && (
               <div className="space-y-4 animate-in fade-in duration-300">
                 {/* Hero Readiness Gauge Card */}
-                <div className="p-8 bg-white dark:bg-[#141414] border border-slate-200/60 dark:border-white/5 rounded-[2.5rem] shadow-xs relative overflow-hidden">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
-                    <div>
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <Zap className="size-4 text-blue-600 dark:text-orange-500" />
-                        <span className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-600 dark:text-orange-500">
+                <div className="p-5 sm:p-8 bg-white dark:bg-[#141414] border border-slate-200/60 dark:border-white/5 rounded-[2rem] sm:rounded-[2.5rem] shadow-xs relative overflow-hidden">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-5 sm:gap-6">
+                    <div className="min-w-0">
+                      <div className="flex items-start gap-2 mb-1.5">
+                        <Zap className="size-4 shrink-0 mt-px text-blue-600 dark:text-orange-500" />
+                        <span className="min-w-0 text-[10px] font-black uppercase tracking-[0.2em] sm:tracking-[0.3em] leading-snug text-blue-600 dark:text-orange-500">
                           Scor Pregătire & Sistem Nervos Central
                         </span>
                       </div>
-                      <h3 className="text-2xl sm:text-3xl font-black text-slate-950 dark:text-white uppercase tracking-tight">
+                      <h3 className="text-xl min-[400px]:text-2xl sm:text-3xl font-black text-slate-950 dark:text-white uppercase tracking-tight break-words">
                         {cnsMetrics.status}
                       </h3>
                       <p className="text-xs text-slate-500 dark:text-zinc-400 mt-1 max-w-md font-medium leading-relaxed">
@@ -585,25 +599,25 @@ export const AiCoachView: React.FC<AiCoachViewProps> = ({ workouts, onUpgradeCli
                   </div>
 
                   {/* Sub-Metrics Grid */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mt-6 pt-6 border-t border-slate-100 dark:border-white/5">
-                    <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/5">
-                      <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider block">Frecvență 7 Zile</span>
-                      <p className="text-base font-black text-slate-900 dark:text-white mt-0.5">{cnsMetrics.weeklySessions} sesiuni</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-2.5 mt-6 pt-6 border-t border-slate-100 dark:border-white/5">
+                    <div className="min-w-0 p-3 sm:p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/5">
+                      <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider block break-words">Frecvență 7 Zile</span>
+                      <p className="text-sm sm:text-base font-black text-slate-900 dark:text-white mt-0.5 break-words">{cnsMetrics.weeklySessions} sesiuni</p>
                     </div>
 
-                    <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/5">
-                      <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider block">Volum Total</span>
-                      <p className="text-base font-black text-slate-900 dark:text-white mt-0.5">{cnsMetrics.weeklySets} serii grele</p>
+                    <div className="min-w-0 p-3 sm:p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/5">
+                      <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider block break-words">Volum Total</span>
+                      <p className="text-sm sm:text-base font-black text-slate-900 dark:text-white mt-0.5 break-words">{cnsMetrics.weeklySets} serii grele</p>
                     </div>
 
-                    <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/5">
-                      <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider block">Intensitate Medie</span>
-                      <p className="text-base font-black text-slate-900 dark:text-white mt-0.5">@RPE {cnsMetrics.avgRpe}</p>
+                    <div className="min-w-0 p-3 sm:p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/5">
+                      <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider block break-words">Intensitate Medie</span>
+                      <p className="text-sm sm:text-base font-black text-slate-900 dark:text-white mt-0.5 break-words">@RPE {cnsMetrics.avgRpe}</p>
                     </div>
 
-                    <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/5">
-                      <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider block">Timp Odihnă SNC</span>
-                      <p className="text-base font-black text-slate-900 dark:text-white mt-0.5">
+                    <div className="min-w-0 p-3 sm:p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/5">
+                      <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider block break-words">Timp Odihnă SNC</span>
+                      <p className="text-sm sm:text-base font-black text-slate-900 dark:text-white mt-0.5 break-words">
                         {cnsMetrics.hoursSinceLast < 999 ? `~${cnsMetrics.hoursSinceLast} ore` : "N/A"}
                       </p>
                     </div>
@@ -611,19 +625,19 @@ export const AiCoachView: React.FC<AiCoachViewProps> = ({ workouts, onUpgradeCli
 
                   {/* Actionable Workout Focus */}
                   <div className="mt-5 p-4 rounded-2xl bg-blue-50/50 dark:bg-white/[0.02] border border-blue-100 dark:border-white/5">
-                    <p className="text-[10px] font-black uppercase tracking-wider text-blue-600 dark:text-orange-500 mb-1 flex items-center gap-1.5">
-                      <Target className="size-3.5" />
-                      Plan Recomandat pentru Următorul Antrenament
+                    <p className="text-[10px] font-black uppercase tracking-wider text-blue-600 dark:text-orange-500 mb-1 flex items-start gap-1.5">
+                      <Target className="size-3.5 shrink-0 mt-px" />
+                      <span className="min-w-0">Plan Recomandat pentru Următorul Antrenament</span>
                     </p>
-                    <p className="text-xs font-bold text-slate-800 dark:text-zinc-200 leading-relaxed">
+                    <p className="text-xs font-bold text-slate-800 dark:text-zinc-200 leading-relaxed break-words">
                       {cnsMetrics.actionAdvice}
                     </p>
                   </div>
                 </div>
 
                 {/* Progressive Overload Standards Card */}
-                <div className="p-7 bg-white dark:bg-[#141414] border border-slate-200/60 dark:border-white/5 rounded-[2.5rem] shadow-xs space-y-4">
-                  <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 dark:text-zinc-500">
+                <div className="p-5 sm:p-7 bg-white dark:bg-[#141414] border border-slate-200/60 dark:border-white/5 rounded-[2rem] sm:rounded-[2.5rem] shadow-xs space-y-4">
+                  <h3 className="text-[10px] font-black uppercase tracking-[0.2em] sm:tracking-[0.3em] leading-snug break-words text-slate-400 dark:text-zinc-500">
                     Reguli de Aur pentru Hipertrofie & Progres
                   </h3>
 
@@ -651,18 +665,24 @@ export const AiCoachView: React.FC<AiCoachViewProps> = ({ workouts, onUpgradeCli
             {/* TAB 2: STAGNATION DETECTION & SOLUTIONS */}
             {activeTab === "stagnation" && (
               <div className="space-y-4 animate-in fade-in duration-300">
-                <div className="p-7 bg-white dark:bg-[#141414] border border-slate-200/60 dark:border-white/5 rounded-[2.5rem] shadow-xs space-y-4">
+                <div className="p-5 sm:p-7 bg-white dark:bg-[#141414] border border-slate-200/60 dark:border-white/5 rounded-[2rem] sm:rounded-[2.5rem] shadow-xs space-y-4">
                   <div className="flex items-center justify-between">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <AlertTriangle className={cn("size-4", stagnationData.length > 0 ? "text-amber-500" : "text-emerald-500")} />
-                        <h3 className="font-black text-lg text-slate-950 dark:text-white uppercase tracking-tight leading-none">
+                    <div className="min-w-0">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className={cn("size-4 shrink-0 mt-px", stagnationData.length > 0 ? "text-amber-500" : "text-emerald-500")} />
+                        <h3 className="min-w-0 font-black text-base sm:text-lg text-slate-950 dark:text-white uppercase tracking-tight leading-tight break-words">
                           Detecție Stagnare & Soluții Inteligente
                         </h3>
                       </div>
-                      <p className="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-widest mt-1">
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider sm:tracking-widest mt-1.5 leading-snug break-words">
                         Algoritmul analizează sesiunile identice din istoricul tău
                       </p>
+                      {currentSession && (
+                        <p className="text-[11px] font-semibold text-slate-500 dark:text-zinc-400 mt-1 leading-snug break-words">
+                          Analizat pe {currentSession.isToday ? "sesiunea de azi" : "ultima sesiune"}: {currentSession.label} ·{" "}
+                          {formatWeekdayDate(currentSession.dayKey)}
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -671,22 +691,22 @@ export const AiCoachView: React.FC<AiCoachViewProps> = ({ workouts, onUpgradeCli
                       {stagnationData.map((st, idx) => (
                         <div
                           key={idx}
-                          className="p-5 rounded-3xl bg-amber-50/40 dark:bg-amber-500/[0.04] border border-amber-200/60 dark:border-amber-500/20 space-y-3"
+                          className="p-4 sm:p-5 rounded-3xl bg-amber-50/40 dark:bg-amber-500/[0.04] border border-amber-200/60 dark:border-amber-500/20 space-y-3"
                         >
                           <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-lg bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-500/30">
+                            <div className="min-w-0 flex-1">
+                              <span className="inline-block max-w-full text-[9px] font-black uppercase px-2 py-0.5 rounded-lg bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-500/30 leading-snug">
                                 Plafonare Detectată (3+ sesiuni)
                               </span>
-                              <h4 className="text-base font-black text-slate-950 dark:text-white uppercase tracking-tight mt-1.5">
+                              <h4 className="text-base font-black text-slate-950 dark:text-white uppercase tracking-tight mt-1.5 break-words leading-tight">
                                 {st.exerciseName}
                               </h4>
-                              <p className="text-xs text-slate-600 dark:text-zinc-300 font-medium mt-0.5">
+                              <p className="text-xs text-slate-600 dark:text-zinc-300 font-medium mt-0.5 break-words">
                                 {st.diagnostic}
                               </p>
                             </div>
 
-                            <div className="text-right shrink-0">
+                            <div className="text-right shrink-0 max-w-[40%]">
                               <span className="text-xl font-black text-amber-600 dark:text-amber-400">
                                 {st.plateauWeight} kg
                               </span>
@@ -708,11 +728,11 @@ export const AiCoachView: React.FC<AiCoachViewProps> = ({ workouts, onUpgradeCli
                                   key={sIdx}
                                   className="p-3 rounded-2xl bg-white dark:bg-zinc-900 border border-amber-200/40 dark:border-white/5 space-y-1"
                                 >
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-xs font-black text-slate-900 dark:text-white">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <span className="min-w-0 text-xs font-black text-slate-900 dark:text-white break-words">
                                       {sol.title}
                                     </span>
-                                    <span className="text-[8px] font-black uppercase px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                                    <span className="shrink-0 text-[8px] font-black uppercase px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400">
                                       {sol.badge}
                                     </span>
                                   </div>
@@ -748,16 +768,16 @@ export const AiCoachView: React.FC<AiCoachViewProps> = ({ workouts, onUpgradeCli
             {/* TAB 3: UNIVERSAL FITNESS & BIOMECHANICS AI EXPERT */}
             {activeTab === "assistant" && (
               <div className="space-y-4 animate-in fade-in duration-300">
-                <div className="p-7 bg-white dark:bg-[#141414] border border-slate-200/60 dark:border-white/5 rounded-[2.5rem] shadow-xs space-y-5">
+                <div className="p-5 sm:p-7 bg-white dark:bg-[#141414] border border-slate-200/60 dark:border-white/5 rounded-[2rem] sm:rounded-[2.5rem] shadow-xs space-y-5">
                   <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <Brain className="size-4 text-purple-600 dark:text-purple-400" />
-                        <h3 className="font-black text-lg text-slate-950 dark:text-white uppercase tracking-tight leading-none">
+                    <div className="min-w-0">
+                      <div className="flex items-start gap-2">
+                        <Brain className="size-4 shrink-0 mt-px text-purple-600 dark:text-purple-400" />
+                        <h3 className="min-w-0 font-black text-base sm:text-lg text-slate-950 dark:text-white uppercase tracking-tight leading-tight break-words">
                           AI Expert • Problem Solver Universal
                         </h3>
                       </div>
-                      <p className="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-widest mt-1">
+                      <p className="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider sm:tracking-widest mt-1.5 leading-snug break-words">
                         Powered by Gemini 3.8 Flash • Rezolvă orice problemă de biomecanică, dureri, stagnare & nutriție
                       </p>
                     </div>
@@ -777,7 +797,7 @@ export const AiCoachView: React.FC<AiCoachViewProps> = ({ workouts, onUpgradeCli
                     <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-zinc-500 block">
                       Alege Categoria Problemei Tale:
                     </span>
-                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none [&::-webkit-scrollbar]:hidden">
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 hide-scrollbar scroll-fade-x touch-pan-x">
                       {[
                         { id: "all", label: "Toate" },
                         { id: "pain", label: "Dureri & Articulații" },
@@ -800,6 +820,7 @@ export const AiCoachView: React.FC<AiCoachViewProps> = ({ workouts, onUpgradeCli
                           {cat.label}
                         </button>
                       ))}
+                      <span aria-hidden="true" className="w-8 h-px shrink-0 sm:hidden" />
                     </div>
                   </div>
 

@@ -17,6 +17,8 @@ interface RestTimerProps {
   isOpen: boolean;
   onClose: () => void;
   autoStart?: boolean;
+  /** Changing this value restarts the countdown from `initialSeconds`, even if the timer is already open. */
+  startSignal?: number;
 }
 
 const PRESETS = [
@@ -35,7 +37,9 @@ export const RestTimer: React.FC<RestTimerProps> = ({
   isOpen,
   onClose,
   autoStart = true,
+  startSignal = 0,
 }) => {
+  const lastStartSignalRef = useRef(startSignal);
   const [timeLeft, setTimeLeft] = useState(initialSeconds);
   const [isRunning, setIsRunning] = useState(autoStart);
   const [totalTime, setTotalTime] = useState(initialSeconds);
@@ -92,33 +96,38 @@ export const RestTimer: React.FC<RestTimerProps> = ({
   useEffect(() => {
     if (!isOpen) return;
 
-    try {
-      const storedEndStr = localStorage.getItem(REST_TIMER_END_KEY);
-      const storedTotalStr = localStorage.getItem(REST_TIMER_TOTAL_KEY);
-      const now = Date.now();
+    const forceFreshStart = startSignal !== lastStartSignalRef.current;
+    lastStartSignalRef.current = startSignal;
 
-      if (storedEndStr) {
-        const storedTarget = parseInt(storedEndStr, 10);
-        if (!isNaN(storedTarget)) {
-          const remaining = Math.max(0, Math.round((storedTarget - now) / 1000));
-          const total = storedTotalStr ? parseInt(storedTotalStr, 10) : initialSeconds;
-          setTotalTime(total || initialSeconds);
+    if (!forceFreshStart) {
+      try {
+        const storedEndStr = localStorage.getItem(REST_TIMER_END_KEY);
+        const storedTotalStr = localStorage.getItem(REST_TIMER_TOTAL_KEY);
+        const now = Date.now();
 
-          if (remaining > 0) {
-            targetEndTimeRef.current = storedTarget;
-            setTimeLeft(remaining);
-            setIsRunning(true);
-            setIsFinished(false);
-            return;
-          } else {
-            // Already finished while closed
-            targetEndTimeRef.current = null;
-            localStorage.removeItem(REST_TIMER_END_KEY);
+        if (storedEndStr) {
+          const storedTarget = parseInt(storedEndStr, 10);
+          if (!isNaN(storedTarget)) {
+            const remaining = Math.max(0, Math.round((storedTarget - now) / 1000));
+            const total = storedTotalStr ? parseInt(storedTotalStr, 10) : initialSeconds;
+            setTotalTime(total || initialSeconds);
+
+            if (remaining > 0) {
+              targetEndTimeRef.current = storedTarget;
+              setTimeLeft(remaining);
+              setIsRunning(true);
+              setIsFinished(false);
+              return;
+            } else {
+              // Already finished while closed
+              targetEndTimeRef.current = null;
+              localStorage.removeItem(REST_TIMER_END_KEY);
+            }
           }
         }
+      } catch {
+        // ignore localStorage errors
       }
-    } catch {
-      // ignore localStorage errors
     }
 
     // Default fresh start
@@ -143,7 +152,7 @@ export const RestTimer: React.FC<RestTimerProps> = ({
       setIsFinished(false);
     }
     setIsMinimized(false);
-  }, [isOpen, initialSeconds, autoStart]);
+  }, [isOpen, initialSeconds, autoStart, startSignal]);
 
   // Precise interval tick based on targetEndTime (not naive decrement)
   useEffect(() => {

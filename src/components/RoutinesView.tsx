@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Plus, Play, Lock, Sparkles, Dumbbell, Trash2, ChevronRight, X } from "lucide-react";
 import { RoutineTemplate, Workout, ExerciseEntry, PRESET_EXERCISES } from "../types";
 import { PurchaseService } from "../services/purchaseService";
+import { loadRoutines, saveRoutines } from "../services/storageService";
 
 interface RoutinesViewProps {
   onStartWorkoutFromRoutine: (routine: RoutineTemplate) => void;
@@ -61,10 +62,7 @@ export const RoutinesView: React.FC<RoutinesViewProps> = ({
   onStartWorkoutFromRoutine,
   onUpgradeClick,
 }) => {
-  const [routines, setRoutines] = useState<RoutineTemplate[]>(() => {
-    const saved = localStorage.getItem("fittrack_routines_v1");
-    return saved ? JSON.parse(saved) : DEFAULT_ROUTINES;
-  });
+  const [routines, setRoutines] = useState<RoutineTemplate[]>(() => loadRoutines(DEFAULT_ROUTINES));
 
   const [isPro, setIsPro] = useState(PurchaseService.isPro());
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -79,19 +77,14 @@ export const RoutinesView: React.FC<RoutinesViewProps> = ({
 
   useEffect(() => {
     const handleRoutinesUpdated = () => {
-      const saved = localStorage.getItem("fittrack_routines_v1");
-      if (saved) {
-        try {
-          setRoutines(JSON.parse(saved));
-        } catch {}
-      }
+      setRoutines(loadRoutines(DEFAULT_ROUTINES));
     };
     window.addEventListener("routines_updated", handleRoutinesUpdated);
     return () => window.removeEventListener("routines_updated", handleRoutinesUpdated);
   }, []);
 
   useEffect(() => {
-    localStorage.setItem("fittrack_routines_v1", JSON.stringify(routines));
+    saveRoutines(routines);
   }, [routines]);
 
   const handleCreateRoutine = () => {

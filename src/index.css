@@ -33,6 +33,14 @@ body {
   touch-action: manipulation;
 }
 
+/* The body-level user-select:none blocks typing into fields on some iOS WebKit versions */
+input,
+textarea,
+select {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
 #root {
   min-height: 100vh;
   background: #000000 !important;
@@ -58,9 +66,23 @@ body {
   display: none !important;
 }
 
-.no-scrollbar {
+.no-scrollbar,
+.hide-scrollbar {
   -ms-overflow-style: none !important;
   scrollbar-width: none !important;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none !important;
+}
+
+/* Swipeable rows on phones: fade the right edge to hint at more content.
+   Pair with a trailing spacer (w-8) so the last item clears the fade. */
+@media (max-width: 639px) {
+  .scroll-fade-x {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+  }
 }
 
 /* Forțăm fundal negru curat fără niciun gradient de fundal */
@@ -70,4 +92,11 @@ body {
 
 .pb-safe {
   padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* html5-qrcode sizes its <video> in fixed pixels; make it fill the viewfinder instead. */
+#fittrack-barcode-reader video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover;
 }

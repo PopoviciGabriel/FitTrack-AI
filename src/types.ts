@@ -21,7 +21,7 @@ export interface RoutineTemplate {
   }[];
 }
 
-export type MealSlotCategory = "mic_dejun" | "pranz" | "pre_workout" | "post_workout" | "cina" | "gustari";
+export type MealSlotCategory = string;
 
 export interface FoodItem {
   id: string;
@@ -37,6 +37,20 @@ export interface FoodItem {
   fiber: number;    // per 100g
   sugar?: number;   // per 100g
   sodium?: number;  // mg per 100g
+  barcode?: string;
+  brand?: string;
+  imageUrl?: string;
+  /** Alternative search terms (synonyms, English names). */
+  aliases?: string[];
+}
+
+export type FoodCategory = FoodItem["category"];
+
+export interface FoodSearchOptions {
+  /** Restrict results to one category. */
+  category?: FoodCategory;
+  /** Max results for a non-empty query. Default 30. */
+  limit?: number;
 }
 
 export interface MacroMealItem {
@@ -52,6 +66,47 @@ export interface MacroMealItem {
   sugar?: number;
   sodium?: number;
   time?: string;
+  barcode?: string;
+  brand?: string;
+  imageUrl?: string;
+}
+
+/** One food as returned by the LLM inside `{ "foods": [...] }`. Every field may be missing or malformed. */
+export interface AiIdentifiedFood {
+  foodGroup?: unknown;
+  preparation?: unknown;
+  name?: unknown;
+  grams?: unknown;
+  calories?: unknown;
+  protein?: unknown;
+  carbs?: unknown;
+  fats?: unknown;
+  fiber?: unknown;
+}
+
+export interface AiFoodsResponse {
+  foods: AiIdentifiedFood[];
+}
+
+/** Why the LLM-based meal parser could not be used. */
+export type AiUnavailableReason = "no_api_key" | "request_failed" | "unrecognized_foods";
+
+/** `torch` is part of the Image Capture spec but missing from the TypeScript DOM typings. */
+export interface TorchTrackCapabilities extends MediaTrackCapabilities {
+  torch?: boolean;
+}
+
+export interface TorchConstraintSet extends MediaTrackConstraintSet {
+  torch?: boolean;
+}
+
+/** Handle on a running camera barcode scanner. */
+export interface BarcodeScannerSession {
+  /** True when the active camera track reports a controllable torch. */
+  readonly torchSupported: boolean;
+  /** Returns false when the torch is unsupported or the constraint was rejected. */
+  setTorch: (enabled: boolean) => Promise<boolean>;
+  stop: () => Promise<void>;
 }
 
 export interface MacroDay {
@@ -64,6 +119,7 @@ export interface MacroDay {
   targetWaterMl?: number;
   waterMl: number;
   meals: MacroMealItem[];
+  customSlots?: string[];
 }
 
 export interface MacroGoal {
@@ -129,13 +185,133 @@ export interface AiVolumeAnalysis {
   analyzedAt: string;
 }
 
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  timestamp: string;
+}
+
+export type DynamicTdeeInsufficientReason =
+  | "no_weight_data"
+  | "no_calorie_data"
+  | "short_period"
+  | "implausible_result";
+
+export interface DynamicTdeeOptions {
+  /** Look-back window in days, today included. Default 14. */
+  windowDays?: number;
+  /** Minimum calendar days covered between first and last weigh-in. Default 7. */
+  minPeriodDays?: number;
+  /** Minimum days with logged calories inside the period. Default 5. */
+  minCalorieDays?: number;
+  /** Reference date (injectable for deterministic results). Default: now. */
+  today?: Date;
+}
+
+export type DynamicTdeeResult =
+  | {
+      status: "ok";
+      /** Estimated maintenance calories (kcal/day). */
+      tdee: number;
+      /** Mean logged intake over the period (kcal/day). */
+      avgCalories: number;
+      /** Trend weight change over the period (kg, negative = loss). */
+      weightChangeKg: number;
+      /** Daily energy balance implied by the weight change (kcal/day, negative = deficit). */
+      dailyBalance: number;
+      periodDays: number;
+      weightDays: number;
+      calorieDays: number;
+    }
+  | {
+      status: "insufficient_data";
+      reason: DynamicTdeeInsufficientReason;
+      weightDays: number;
+      calorieDays: number;
+      /** Calendar days covered by the weigh-ins found (0 if fewer than 2). */
+      periodDays: number;
+    };
+
+export interface OverloadOptions {
+  /** Rep target that unlocks a weight increase. Default 8. */
+  targetReps?: number;
+  /** Weight increment in kg. Default 2.5. */
+  incrementKg?: number;
+  /** Stable exercise id; when set on both sides it takes priority over the name. */
+  exerciseId?: string;
+  /** Workout being edited: its live entries are ignored, its saved snapshots are kept. */
+  excludeWorkoutId?: string;
+  /** Reference "now" (injectable for tests). Sessions from this calendar day are not used as history. */
+  today?: Date;
+}
+
+export interface OverloadSuggestion {
+  kind: "increase_weight" | "increase_reps";
+  /** Text such as "+2.5kg (Ex: 82.5kg)" or "+1 Repetare (Aceeași greutate)". */
+  label: string;
+  nextWeightKg: number;
+  nextReps: number;
+  lastWeightKg: number;
+  lastSessionDate: string;
+}
+
 export interface LicenseInfo {
+  /** True when the app is usable: a valid license or an active trial. */
   isProUser: boolean;
-  tier: "free" | "pro_lifetime";
+  tier: "free" | "trial" | "pro_lifetime";
   purchaseDate?: string;
   orderId?: string;
-  provider?: "stripe" | "lemonsqueezy" | "google_play" | "promo_code";
+  provider?: "stripe" | "lemonsqueezy" | "google_play" | "promo_code" | "shopify";
   pricePaid?: string;
+  licenseKey?: string;
+  /** Whole days left in the trial (1..7); set while tier is "trial". */
+  trialDaysLeft?: number;
+  trialEndsAt?: string;
+  /** True once the 7-day trial ran out without a valid license. */
+  trialExpired?: boolean;
+}
+
+/** One workout state at one point in time (a live workout or a saved snapshot). */
+export interface TimelineSession {
+  /** Id of the workout this state belongs to (shared by its snapshots). */
+  workoutKey: string;
+  title: string;
+  date: string;
+  timestamp: number;
+  /** Local calendar day, YYYY-MM-DD. */
+  dayKey: string;
+  entries: ExerciseEntry[];
+}
+
+export interface LicenseActivationResult {
+  success: boolean;
+  message: string;
+  license?: LicenseInfo;
+}
+
+export const CUSTOM_MUSCLE_GROUPS = [
+  "Piept",
+  "Spate",
+  "Picioare",
+  "Brațe",
+  "Umeri",
+  "Core",
+  "Cardio",
+  "Full Body",
+  "Altele",
+] as const;
+
+export type CustomMuscleGroup = (typeof CUSTOM_MUSCLE_GROUPS)[number];
+
+/** Prefix of every user-created exercise id; used to tell them apart from presets. */
+export const CUSTOM_EXERCISE_ID_PREFIX = "custom-";
+
+export interface CustomExercise {
+  id: string;
+  name: string;
+  muscleGroup: CustomMuscleGroup;
+  createdAt: string;
 }
 
 export interface ExerciseEntry {
@@ -144,6 +320,8 @@ export interface ExerciseEntry {
   name: string;
   sets: Set[];
   notes?: string;
+  /** Set for custom exercises so the muscle group survives deleting the exercise itself. */
+  muscleGroup?: CustomMuscleGroup;
 }
 
 export interface WorkoutSnapshot {
@@ -196,9 +374,12 @@ export interface Exercise {
     | "Calves & Tibialis (Gambe și Tibie)"
     | "Forearms & Grip (Antebrațe)"
     | "Core & Abs (Abdomen)"
-    | "Olympic & Full Body";
+    | "Olympic & Full Body"
+    | CustomMuscleGroup;
   targetMuscle?: string;
   description?: string;
+  /** True for exercises created by the user. */
+  isCustom?: boolean;
 }
 
 export const PRESET_EXERCISES: Exercise[] = [

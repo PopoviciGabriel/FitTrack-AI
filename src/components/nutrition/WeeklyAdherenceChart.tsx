@@ -13,12 +13,15 @@ import { format, subDays, parseISO } from "date-fns";
 import { ro } from "date-fns/locale";
 import { TrendingUp, Award, CheckCircle2, Flame, Dumbbell } from "lucide-react";
 import { MacroDay, MacroGoal } from "../../types";
+import { loadMacroDay } from "../../services/storageService";
 
 interface WeeklyAdherenceChartProps {
   currentGoal: MacroGoal;
+  /** Day currently being edited; used instead of storage so the chart is never one edit behind. */
+  liveDay?: MacroDay;
 }
 
-export const WeeklyAdherenceChart: React.FC<WeeklyAdherenceChartProps> = ({ currentGoal }) => {
+export const WeeklyAdherenceChart: React.FC<WeeklyAdherenceChartProps> = ({ currentGoal, liveDay }) => {
   const [metric, setMetric] = useState<"protein" | "calories">("protein");
 
   // Read last 7 days from localStorage
@@ -31,19 +34,20 @@ export const WeeklyAdherenceChart: React.FC<WeeklyAdherenceChartProps> = ({ curr
       const dateKey = format(d, "yyyy-MM-dd");
       const dayName = format(d, "EEE", { locale: ro });
 
-      const saved = localStorage.getItem(`fittrack_nutrition_${dateKey}`);
-      let calories = 0;
-      let protein = 0;
-
-      if (saved) {
-        try {
-          const parsed: MacroDay = JSON.parse(saved);
-          calories = parsed.meals?.reduce((sum, m) => sum + (m.calories || 0), 0) || 0;
-          protein = parsed.meals?.reduce((sum, m) => sum + (m.protein || 0), 0) || 0;
-        } catch (e) {
-          console.warn("Parse error for date", dateKey, e);
-        }
-      }
+      const dayData =
+        liveDay && liveDay.date === dateKey
+          ? liveDay
+          : loadMacroDay(dateKey, {
+              date: dateKey,
+              targetCalories: currentGoal.calories,
+              targetProtein: currentGoal.protein,
+              targetCarbs: currentGoal.carbs,
+              targetFats: currentGoal.fats,
+              waterMl: 0,
+              meals: [],
+            });
+      const calories = dayData.meals.reduce((sum, m) => sum + (m.calories || 0), 0);
+      const protein = dayData.meals.reduce((sum, m) => sum + (m.protein || 0), 0);
 
       const proteinTarget = currentGoal.protein || 180;
       const calorieTarget = currentGoal.calories || 2800;
@@ -61,7 +65,7 @@ export const WeeklyAdherenceChart: React.FC<WeeklyAdherenceChartProps> = ({ curr
     }
 
     return data;
-  }, [currentGoal]);
+  }, [currentGoal, liveDay]);
 
   const proteinDaysMet = chartData.filter((d) => d.proteinMet).length;
   const adherenceRate = Math.round((proteinDaysMet / 7) * 100);

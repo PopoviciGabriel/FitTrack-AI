@@ -15,7 +15,7 @@ import {
 } from "recharts";
 import { Workout, ProgressEntry } from "../types";
 import { cn, formatDate } from "../lib/utils";
-import { getWorkoutAdvice } from "../services/geminiService";
+import { getAiErrorMessage, getWorkoutAdvice } from "../services/geminiService";
 import { WeightInputModal } from "./WeightInputModal";
 
 export const Card = ({ 
@@ -83,17 +83,29 @@ export const HomeView = ({
   const [showWeightModal, setShowWeightModal] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     const fetchAdvice = async () => {
       setLoadingAdvice(true);
-      const res = await getWorkoutAdvice(workouts.slice(0, 3));
-      setAdvice(res || "Prioritatea următoare: crește greutatea cu 1-2.5 kg sau adaugă o repetare la primul exercițiu compus.");
+      let text: string;
+      try {
+        const res = await getWorkoutAdvice(workouts.slice(0, 3));
+        text = res || "Prioritatea următoare: crește greutatea cu 1-2.5 kg sau adaugă o repetare la primul exercițiu compus.";
+      } catch (error) {
+        text = getAiErrorMessage(error);
+      }
+      if (cancelled) return;
+      setAdvice(text);
       setLoadingAdvice(false);
     };
     if (workouts.length > 0) {
       fetchAdvice();
     } else {
       setAdvice("Înregistrează prima sesiune pentru a primi rezumatul esențial cu ce ai de făcut în continuare.");
+      setLoadingAdvice(false);
     }
+    return () => {
+      cancelled = true;
+    };
   }, [workouts]);
 
   const recentWeight = progress.length > 0 ? progress[progress.length - 1].weight : null;
@@ -103,9 +115,9 @@ export const HomeView = ({
       {/* Top Banner Header */}
       <header className="flex justify-between items-center bg-[#f4f7f0] dark:bg-[#0A0A0A] sticky top-0 z-20 pt-[calc(env(safe-area-inset-top)+1rem)] pb-4 px-6 border-b border-slate-200 dark:border-white/5 -mx-4 transition-all">
         <div>
-          <h1 className="text-3xl font-black tracking-tighter text-slate-950 dark:text-zinc-50 uppercase leading-none">FitTrack.</h1>
+          <h1 className="text-3xl font-black tracking-tighter text-slate-950 dark:text-zinc-50 uppercase leading-none">FITTRACK</h1>
           <p className="text-blue-600 dark:text-orange-500 text-[10px] font-black uppercase tracking-[0.35em] mt-1.5 leading-none">
-            HIPERTROFIE & PROGRES • 100% GRATUIT
+            HIPERTROFIE & PROGRES
           </p>
         </div>
         <div className="flex items-center gap-2">

@@ -9,16 +9,27 @@ import {
   CheckCircle2, 
   RefreshCw 
 } from "lucide-react";
-import { Workout, ProgressEntry } from "../types";
+import { Workout, ProgressEntry, CustomExercise } from "../types";
+import {
+  sanitizeWorkouts,
+  sanitizeProgress,
+  sanitizeCustomExercises,
+  loadCustomExercises,
+} from "../services/storageService";
 
 interface ExportModalProps {
   isOpen: boolean;
   onClose: () => void;
   workouts: Workout[];
   progress: ProgressEntry[];
-  onImportData: (workouts: Workout[], progress: ProgressEntry[]) => void;
+  onImportData: (workouts: Workout[], progress: ProgressEntry[], customExercises: CustomExercise[]) => void;
   onUpgradeClick?: () => void;
 }
+
+const escapeCsvField = (value: string | number): string => `"${String(value).replace(/"/g, '""')}"`;
+
+const CONFIRM_IMPORT_MESSAGE =
+  "Importul va ÎNLOCUI antrenamentele de pe acest dispozitiv cu cele din fișier. Continui?";
 
 /**
  * Robust CSV parser that reads workout records exported from FitTrack,
@@ -55,7 +66,7 @@ function parseCSVToWorkouts(csvContent: string): Workout[] {
 
     for (let i = 0; i < rowStr.length; i++) {
       const char = rowStr[i];
-      if (char === '"' || char === "'") {
+      if (char === '"') {
         if (inQuotes && rowStr[i + 1] === char) {
           current += char;
           i++; // skip escaped quote
@@ -63,13 +74,13 @@ function parseCSVToWorkouts(csvContent: string): Workout[] {
           inQuotes = !inQuotes;
         }
       } else if (char === delimiter && !inQuotes) {
-        tokens.push(current.trim().replace(/^["']|["']$/g, ""));
+        tokens.push(current.trim());
         current = "";
       } else {
         current += char;
       }
     }
-    tokens.push(current.trim().replace(/^["']|["']$/g, ""));
+    tokens.push(current.trim());
     return tokens;
   };
 
@@ -233,6 +244,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
       exportDate: new Date().toISOString(),
       workouts,
       progress,
+      customExercises: loadCustomExercises(),
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -249,7 +261,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     workouts.forEach((w) => {
       w.entries.forEach((e) => {
         e.sets.forEach((s, idx) => {
-          csv += `"${w.date}","${w.title}","${e.name}",${idx + 1},${s.weight},${s.reps},${s.rpe || ""},${s.completed ? "Da" : "Nu"}\n`;
+          csv += `${escapeCsvField(w.date)},${escapeCsvField(w.title)},${escapeCsvField(e.name)},${idx + 1},${s.weight},${s.reps},${s.rpe || ""},${s.completed ? "Da" : "Nu"}\n`;
         });
       });
     });
@@ -284,42 +296,51 @@ export const ExportModal: React.FC<ExportModalProps> = ({
           trimmed.startsWith("[");
 
         if (isJson) {
+          let parsed: unknown = null;
+          let jsonValid = true;
           try {
-            const parsed = JSON.parse(content);
-            if (parsed.workouts && Array.isArray(parsed.workouts)) {
-              onImportData(parsed.workouts, parsed.progress || []);
-              alert("Datele JSON au fost importate cu succes!");
-              onClose();
-              return;
-            } else if (Array.isArray(parsed)) {
-              onImportData(parsed, []);
-              alert("Datele JSON au fost importate cu succes!");
-              onClose();
-              return;
-            } else {
+            parsed = JSON.parse(content);
+          } catch {
+            jsonValid = false;
+          }
+
+          if (jsonValid) {
+            const record = typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+              ? (parsed as Record<string, unknown>)
+              : null;
+            const rawWorkouts = Array.isArray(parsed) ? parsed : record?.workouts;
+
+            if (!Array.isArray(rawWorkouts)) {
               alert("Fișierul JSON nu are structura validă FitTrack.");
               return;
             }
-          } catch (jsonErr) {
-            // Fallback to CSV parser if JSON parsing fails and delimiters exist
-            if (trimmed.includes(",") || trimmed.includes(";") || trimmed.includes("\t")) {
-              const importedWorkouts = parseCSVToWorkouts(content);
-              if (importedWorkouts.length > 0) {
-                onImportData(importedWorkouts, progress || []);
-                alert(`S-au importat cu succes ${importedWorkouts.length} antrenamente din fișierul CSV!`);
-                onClose();
-                return;
-              }
+
+            const cleanWorkouts = sanitizeWorkouts(rawWorkouts);
+            if (cleanWorkouts.length === 0 && rawWorkouts.length > 0) {
+              alert("Fișierul nu conține antrenamente valide. Datele existente nu au fost modificate.");
+              return;
             }
+            if (!window.confirm(CONFIRM_IMPORT_MESSAGE)) return;
+
+            const cleanProgress = record && "progress" in record ? sanitizeProgress(record.progress) : progress;
+            onImportData(cleanWorkouts, cleanProgress, sanitizeCustomExercises(record?.customExercises));
+            alert(`Backup restaurat: ${cleanWorkouts.length} antrenamente.`);
+            onClose();
+            return;
+          }
+
+          // Not valid JSON: fall through to the CSV parser when it looks delimited
+          if (!(trimmed.includes(",") || trimmed.includes(";") || trimmed.includes("\t"))) {
             alert("Eroare la citirea fișierului JSON.");
             return;
           }
         }
 
         // CSV Parser flow
-        const importedWorkouts = parseCSVToWorkouts(content);
+        const importedWorkouts = sanitizeWorkouts(parseCSVToWorkouts(content));
         if (importedWorkouts.length > 0) {
-          onImportData(importedWorkouts, progress || []);
+          if (!window.confirm(CONFIRM_IMPORT_MESSAGE)) return;
+          onImportData(importedWorkouts, progress, []);
           alert(`S-au importat cu succes ${importedWorkouts.length} antrenamente din fișierul CSV!`);
           onClose();
         } else {
@@ -366,10 +387,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({
         {/* Compact Header */}
         <div className="p-5 sm:p-6 pb-3 border-b border-slate-100 dark:border-zinc-800/80 shrink-0 pr-12">
           <span className="text-[10px] font-black uppercase tracking-widest text-blue-600 dark:text-orange-500">
-            Cloud & Backup Gratuit
+            Backup Gratuit
           </span>
           <h3 className="text-xl sm:text-2xl font-black text-slate-950 dark:text-white uppercase tracking-tight">
-            Sincronizare & Export
+            Backup & Export
           </h3>
         </div>
 
@@ -384,10 +405,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                 </div>
                 <div>
                   <h4 className="font-black text-xs sm:text-sm text-slate-900 dark:text-white uppercase">
-                    FitTrack Cloud Sync
+                    Stocare Locală
                   </h4>
                   <p className="text-[10px] font-bold text-slate-400 dark:text-zinc-500">
-                    Criptat & Sincronizat automat
+                    Datele sunt stocate local pe acest dispozitiv
                   </p>
                 </div>
               </div>
@@ -396,7 +417,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                 onClick={triggerCloudSync}
                 disabled={syncing}
                 className="p-2.5 rounded-xl bg-blue-600 dark:bg-orange-500 text-white dark:text-black hover:scale-105 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
-                title="Sincronizează acum"
+                title="Verifică starea stocării"
               >
                 <RefreshCw className={`size-4 ${syncing ? "animate-spin" : ""}`} />
               </button>
@@ -405,7 +426,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
             {synced && (
               <div className="flex items-center gap-2 text-xs font-bold text-green-600 dark:text-green-400">
                 <CheckCircle2 className="size-4" />
-                <span>Sincronizare în cloud finalizată!</span>
+                <span>Datele sunt salvate local. Fă un backup JSON periodic.</span>
               </div>
             )}
           </div>
@@ -438,7 +459,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                 <FileText className="size-5 text-blue-600 shrink-0" />
                 <div>
                   <p className="font-black text-xs text-slate-900 dark:text-white uppercase">Backup Complet (JSON)</p>
-                  <p className="text-[10px] text-slate-400">Include istoricul antrenamentelor și progresul</p>
+                  <p className="text-[10px] text-slate-400">Include antrenamentele, progresul și exercițiile custom</p>
                 </div>
               </div>
               <Download className="size-4 text-slate-400 shrink-0 ml-2" />

@@ -12,8 +12,10 @@ import {
   Filter,
   ArrowLeft
 } from "lucide-react";
-import { FoodItem, MacroMealItem, MealSlotCategory } from "../../types";
-import { BODYBUILDING_FOOD_DATABASE } from "../../data/foodDatabase";
+import { FoodCategory, FoodItem, MacroMealItem, MealSlotCategory } from "../../types";
+import { searchFoodsOffline, warmUpFoodIndex } from "../../services/foodSearchService";
+
+const SEARCH_DEBOUNCE_MS = 200;
 
 interface FoodSearchModalProps {
   isOpen: boolean;
@@ -38,6 +40,7 @@ export const FoodSearchModal: React.FC<FoodSearchModalProps> = ({
   onAddMealItem,
 }) => {
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedTerm, setDebouncedTerm] = useState("");
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>("Toate");
   const [selectedFood, setSelectedFood] = useState<FoodItem | null>(null);
   const [targetSlot, setTargetSlot] = useState<MealSlotCategory>(defaultCategory);
@@ -63,15 +66,31 @@ export const FoodSearchModal: React.FC<FoodSearchModalProps> = ({
     setGrams(food.defaultPortion || 100);
   };
 
-  // Filtered food items
-  const filteredFoods = useMemo(() => {
-    return BODYBUILDING_FOOD_DATABASE.filter((item) => {
-      const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesCategory =
-        selectedCategoryFilter === "Toate" || item.category === selectedCategoryFilter;
-      return matchesSearch && matchesCategory;
-    });
-  }, [searchTerm, selectedCategoryFilter]);
+  // Build the offline search index once, off the first keystroke's critical path
+  React.useEffect(() => {
+    warmUpFoodIndex();
+  }, []);
+
+  // Debounce typing so the list updates once the user pauses
+  React.useEffect(() => {
+    const timer = setTimeout(() => setDebouncedTerm(searchTerm), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  const clearSearch = () => {
+    setSearchTerm("");
+    setDebouncedTerm("");
+  };
+
+  // Fuzzy, fully offline search; results are computed synchronously
+  const filteredFoods = useMemo(
+    () =>
+      searchFoodsOffline(debouncedTerm, {
+        category:
+          selectedCategoryFilter === "Toate" ? undefined : (selectedCategoryFilter as FoodCategory),
+      }),
+    [debouncedTerm, selectedCategoryFilter]
+  );
 
   // Computed values for selected food
   const computedMacros = useMemo(() => {
@@ -335,7 +354,7 @@ export const FoodSearchModal: React.FC<FoodSearchModalProps> = ({
                 className="w-full py-3.5 px-5 bg-orange-500 hover:bg-orange-600 text-black font-black text-sm tracking-wide uppercase rounded-2xl shadow-lg shadow-orange-500/20 cursor-pointer active:scale-98 transition-all flex items-center justify-center gap-2"
               >
                 <Plus className="size-4 stroke-[3]" />
-                Adaugă {grams}g în {CATEGORY_NAMES[targetSlot]}
+                Adaugă {grams}g în {CATEGORY_NAMES[targetSlot] || targetSlot}
               </button>
             </div>
           ) : isCustomMode ? (
@@ -432,7 +451,7 @@ export const FoodSearchModal: React.FC<FoodSearchModalProps> = ({
                 type="submit"
                 className="w-full py-3.5 px-5 bg-orange-500 hover:bg-orange-600 text-black font-black text-sm tracking-wide uppercase rounded-2xl shadow-lg shadow-orange-500/20 cursor-pointer active:scale-98 transition-all"
               >
-                Salvează Aliment în {CATEGORY_NAMES[targetSlot]}
+                Salvează Aliment în {CATEGORY_NAMES[targetSlot] || targetSlot}
               </button>
             </form>
           ) : (
@@ -452,7 +471,7 @@ export const FoodSearchModal: React.FC<FoodSearchModalProps> = ({
                 {searchTerm && (
                   <button
                     type="button"
-                    onClick={() => setSearchTerm("")}
+                    onClick={clearSearch}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer"
                   >
                     <X className="size-4" />
@@ -524,7 +543,7 @@ export const FoodSearchModal: React.FC<FoodSearchModalProps> = ({
 
                 {filteredFoods.length === 0 && (
                   <div className="text-center py-8 text-slate-400 dark:text-zinc-600">
-                    <p className="text-sm">Nu s-a găsit niciun aliment pentru „{searchTerm}”.</p>
+                    <p className="text-sm">Nu s-a găsit niciun aliment pentru „{debouncedTerm}”.</p>
                     <button
                       type="button"
                       onClick={() => setIsCustomMode(true)}

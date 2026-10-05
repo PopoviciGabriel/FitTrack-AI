@@ -13,7 +13,7 @@ import {
   Lock
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { PurchaseService } from "../services/purchaseService";
+import { PurchaseService, LICENSE_PRICE_LABEL } from "../services/purchaseService";
 
 interface UpgradeModalProps {
   isOpen: boolean;
@@ -43,6 +43,9 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onS
           setSuccessMessage(null);
           onClose();
         }, 1800);
+      } else {
+        setShowRestore(true);
+        setRestoreError(res.message);
       }
     } catch (e) {
       console.error(e);
@@ -114,9 +117,9 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onS
           </p>
 
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-3xl sm:text-4xl font-black tracking-tight text-white dark:text-zinc-950">19.99 RON</span>
+            <span className="text-3xl sm:text-4xl font-black tracking-tight text-white dark:text-zinc-950">{LICENSE_PRICE_LABEL}</span>
             <span className="text-[10px] font-black uppercase tracking-widest opacity-85 text-white dark:text-zinc-900">
-              (~4 EUR) • Plată Unică
+              (~10 EUR) • Plată Unică
             </span>
           </div>
         </div>
@@ -148,7 +151,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onS
           {/* Proposition callout */}
           <div className="p-3.5 rounded-2xl bg-blue-50/60 dark:bg-orange-500/10 border border-blue-100 dark:border-orange-500/20 text-center">
             <p className="text-xs font-black text-blue-950 dark:text-orange-300 leading-snug">
-              „Fără abonamente lunare. 19.99 lei o singură dată pentru acces pe viață la AI Coach, nutriție și analize avansate.”
+              „Fără abonamente lunare. {LICENSE_PRICE_LABEL} o singură dată pentru acces pe viață la AI Coach, nutriție și analize avansate.”
             </p>
           </div>
 
@@ -242,9 +245,9 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onS
                     <Key className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-slate-400" />
                     <input
                       type="text"
-                      placeholder="Cod licență (ex: VIP2026, FITTRACK-PRO)"
+                      placeholder="Cod licență (FITPRO-XXXX-XXXX)"
                       value={restoreCode}
-                      onChange={(e) => setRestoreCode(e.target.value)}
+                      onChange={(e) => setRestoreCode(e.target.value.toUpperCase())}
                       className="w-full pl-10 pr-3 py-2 rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-900 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-600 dark:focus:ring-orange-500"
                     />
                   </div>
@@ -276,7 +279,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onS
             ) : (
               <>
                 <ShieldCheck className="size-5" />
-                <span>Cumpără Acum • 19.99 RON</span>
+                <span>Cumpără Acum • {LICENSE_PRICE_LABEL}</span>
                 <ArrowRight className="size-4" />
               </>
             )}
