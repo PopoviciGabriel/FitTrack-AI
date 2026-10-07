@@ -13,8 +13,9 @@ import {
   RotateCcw,
   Utensils
 } from "lucide-react";
-import { MacroMealItem, MealSlotCategory } from "../../types";
-import { AiApiError, AiUnavailableError, parseNaturalLanguageMeal } from "../../services/geminiService";
+import { MacroMealItem, MealSlotCategory, NutritionEngineMeta } from "../../types";
+import { hasActiveGeminiKey, parseNaturalLanguageMeal } from "../../services/geminiService";
+import { EngineModeBadge, EngineResultBadge } from "./NutritionEngineBadge";
 
 interface NaturalLanguageModalProps {
   isOpen: boolean;
@@ -53,6 +54,9 @@ export const NaturalLanguageModal: React.FC<NaturalLanguageModalProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [parsedItems, setParsedItems] = useState<MacroMealItem[]>([]);
+  const [unrecognized, setUnrecognized] = useState<string[]>([]);
+  const [engine, setEngine] = useState<NutritionEngineMeta | null>(null);
+  const advancedMode = React.useMemo(() => isOpen && hasActiveGeminiKey(), [isOpen]);
 
   // Dynamic slot options
   const slotOptions = React.useMemo(() => {
@@ -76,6 +80,8 @@ export const NaturalLanguageModal: React.FC<NaturalLanguageModalProps> = ({
     if (!isOpen) {
       setInputText("");
       setParsedItems([]);
+      setUnrecognized([]);
+      setEngine(null);
       setErrorMsg(null);
       setIsLoading(false);
     }
@@ -91,19 +97,16 @@ export const NaturalLanguageModal: React.FC<NaturalLanguageModalProps> = ({
     setErrorMsg(null);
 
     try {
-      const items = await parseNaturalLanguageMeal(inputText, selectedSlot);
-      if (items.length === 0) {
-        setErrorMsg("Nu s-au putut identifica alimente clare în text. Încearcă să precizezi alimentele și gramajele aproximative.");
-      } else {
-        setParsedItems(items);
+      const analysis = await parseNaturalLanguageMeal(inputText, selectedSlot);
+      setEngine(analysis.engine);
+      setUnrecognized(analysis.unrecognized);
+      setParsedItems(analysis.items);
+      if (analysis.items.length === 0) {
+        setErrorMsg("Nu am recunoscut alimente în text. Precizează alimentele și gramajele (ex: „150g păstrăv la grătar”) sau folosește Căutarea de alimente.");
       }
     } catch (err: unknown) {
-      if (err instanceof AiUnavailableError || err instanceof AiApiError) {
-        setErrorMsg(err.message);
-      } else {
-        console.error("Natural language parse error:", err);
-        setErrorMsg("A apărut o problemă la procesarea textului. Te rugăm să încerci din nou.");
-      }
+      console.error("Natural language parse error:", err);
+      setErrorMsg("Nu am putut procesa textul. Încearcă din nou.");
     } finally {
       setIsLoading(false);
     }
@@ -162,14 +165,12 @@ export const NaturalLanguageModal: React.FC<NaturalLanguageModalProps> = ({
               <MessageSquareText className="size-5" />
             </div>
             <div>
-              <h2 className="text-lg font-black tracking-tight text-white flex items-center gap-2">
+              <h2 className="text-lg font-black tracking-tight text-white flex flex-wrap items-center gap-2">
                 Jurnal Inteligent prin Text
-                <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
-                  Gemini 3.8 Flash
-                </span>
+                <EngineModeBadge advanced={advancedMode} />
               </h2>
               <p className="text-xs text-zinc-400">
-                Descrie masa în limbaj liber și AI-ul extrage alimentele și macronutrienții
+                Descrie masa în limbaj liber și FitTrack extrage alimentele și macronutrienții
               </p>
             </div>
           </div>
@@ -262,7 +263,7 @@ export const NaturalLanguageModal: React.FC<NaturalLanguageModalProps> = ({
             {isLoading ? (
               <>
                 <div className="size-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                <span>Gemini analizează ingredientele...</span>
+                <span>{advancedMode ? "Gemini analizează ingredientele..." : "Analizez ingredientele..."}</span>
               </>
             ) : (
               <>
@@ -274,8 +275,8 @@ export const NaturalLanguageModal: React.FC<NaturalLanguageModalProps> = ({
 
           {/* Error Message */}
           {errorMsg && (
-            <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-start gap-3 animate-in fade-in">
-              <AlertCircle className="size-4 shrink-0 text-rose-400 mt-0.5" />
+            <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs flex items-start gap-3 animate-in fade-in">
+              <AlertCircle className="size-4 shrink-0 text-amber-400 mt-0.5" />
               <p className="font-semibold">{errorMsg}</p>
             </div>
           )}
@@ -291,17 +292,31 @@ export const NaturalLanguageModal: React.FC<NaturalLanguageModalProps> = ({
                   <p className="text-[11px] text-zinc-400">
                     Verifică și ajustează porțiile înainte de a salva în jurnal
                   </p>
+                  {engine && (
+                    <div className="mt-1">
+                      <EngineResultBadge engine={engine} />
+                    </div>
+                  )}
                 </div>
 
                 <button
                   type="button"
-                  onClick={() => setParsedItems([])}
+                  onClick={() => {
+                    setParsedItems([]);
+                    setUnrecognized([]);
+                  }}
                   className="text-[11px] font-semibold text-zinc-400 hover:text-white flex items-center gap-1 cursor-pointer"
                 >
                   <RotateCcw className="size-3" />
                   <span>Resetează</span>
                 </button>
               </div>
+
+              {unrecognized.length > 0 && (
+                <p className="text-[11px] text-amber-400/90">
+                  Nu am recunoscut: {unrecognized.join(", ")}. Le poți adăuga separat din Căutarea de alimente.
+                </p>
+              )}
 
               {/* Items Card List */}
               <div className="space-y-2">

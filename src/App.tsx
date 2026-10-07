@@ -32,6 +32,8 @@ import {
   saveRoutines,
   saveWorkoutData,
 } from "./services/storageService";
+import { isFromAnotherDay } from "./services/algorithmService";
+import { openRestTimer, setRestTimerMinimized } from "./services/restTimerService";
 import { UpgradeModal } from "./components/UpgradeModal";
 import { TrialBanner, formatTrialDays } from "./components/TrialBanner";
 import { ProGuard } from "./components/ProGuard";
@@ -223,7 +225,11 @@ function AppContent() {
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [showRestTimer, setShowRestTimer] = useState(false);
+
+  // Full timer card while training, compact floating pill everywhere else.
+  useEffect(() => {
+    setRestTimerMinimized(!isEditing);
+  }, [isEditing]);
 
   useEffect(() => {
     setWorkouts(loadWorkouts());
@@ -277,8 +283,8 @@ function AppContent() {
       const hasEntriesChanged = JSON.stringify(previousEntries) !== JSON.stringify(w.entries);
       
       const updatedHistory = [...(existingWorkout.history || [])];
-      if (hasEntriesChanged) {
-        // Save the previous session state into history with its historical date so session progression works
+      // Only a session from an earlier day becomes history; re-saving today just replaces today's state.
+      if (hasEntriesChanged && isFromAnotherDay(existingWorkout.date)) {
         updatedHistory.push({
           date: existingWorkout.date,
           entries: previousEntries,
@@ -417,7 +423,7 @@ function AppContent() {
 
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setShowRestTimer(prev => !prev)}
+            onClick={() => openRestTimer()}
             className="p-2.5 rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-white/10 text-slate-700 dark:text-zinc-300 hover:text-blue-600 cursor-pointer active:scale-95 transition-transform duration-150"
             title="Rest Timer"
           >
@@ -451,7 +457,7 @@ function AppContent() {
             theme={theme}
             isPro={license.isProUser}
             onOpenUpgrade={() => setShowUpgradeModal(true)}
-            onOpenRestTimer={() => setShowRestTimer(true)}
+            onOpenRestTimer={() => openRestTimer()}
             onTabChange={(t) => setActiveTab(t)}
             onAddWorkout={() => openEditor(null)} 
             onSelectWorkout={(w) => openEditor(w)}
@@ -503,12 +509,8 @@ function AppContent() {
         )}
       </main>
 
-      {/* Floating Rest Timer Component */}
-      <RestTimer 
-        isOpen={showRestTimer} 
-        onClose={() => setShowRestTimer(false)}
-        initialSeconds={90}
-      />
+      {/* Global rest timer over the tabs; the editor renders its own view of the same timer */}
+      {!isEditing && <RestTimer placement="screen" />}
 
       {/* Full-Screen Workout Editor */}
       <AnimatePresence mode="wait">

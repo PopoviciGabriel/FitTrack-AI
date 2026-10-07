@@ -32,8 +32,18 @@ import {
 } from "lucide-react";
 import { format, addDays, subDays, parseISO } from "date-fns";
 import { ro } from "date-fns/locale";
-import { MacroDay, MacroMealItem, MacroGoal, MealSlotCategory, ProgressEntry } from "../types";
+import {
+  MacroDay,
+  MacroMealItem,
+  MacroGoal,
+  MealSlotCategory,
+  NutritionAdviceResult,
+  NutritionDaySnapshot,
+  NutritionEngineMeta,
+  ProgressEntry,
+} from "../types";
 import { calculateDynamicTDEE } from "../services/algorithmService";
+import { buildLocalNutritionTips, generateAiNutritionAdvice, hasActiveGeminiKey } from "../services/geminiService";
 import {
   loadNutritionLogs,
   loadMacroDay,
@@ -52,6 +62,9 @@ import { WeeklyAdherenceChart } from "./nutrition/WeeklyAdherenceChart";
 import { BarcodeScannerModal } from "./nutrition/BarcodeScannerModal";
 import { NaturalLanguageModal } from "./nutrition/NaturalLanguageModal";
 import { QuickMacroModal } from "./nutrition/QuickMacroModal";
+import { NutritionTipsCard } from "./nutrition/NutritionTipsCard";
+
+const LOCAL_TIPS_ENGINE: NutritionEngineMeta = { source: "local" };
 
 interface NutritionViewProps {
   onUpgradeClick: () => void;
@@ -472,6 +485,41 @@ export const NutritionView: React.FC<NutritionViewProps> = ({ onUpgradeClick, pr
 
   const activeSlots = dayLog.customSlots || [];
 
+  const currentHour = new Date().getHours();
+  const daySnapshot = useMemo<NutritionDaySnapshot>(
+    () => ({
+      goalType: goal.type,
+      consumed: { calories: totals.calories, protein: totals.protein, carbs: totals.carbs, fats: totals.fats, fiber: totals.fiber },
+      targets: { calories: targetKcal, protein: targetP, carbs: targetC, fats: targetF, fiber: targetFiber },
+      waterMl: dayLog.waterMl,
+      targetWaterMl: targetWater,
+      mealsLogged: dayLog.meals.length,
+      loggedFoods: dayLog.meals.map((meal) => meal.name),
+      hour: currentHour,
+      isToday,
+    }),
+    [goal.type, totals, targetKcal, targetP, targetC, targetF, targetFiber, dayLog.waterMl, targetWater, dayLog.meals, currentHour, isToday]
+  );
+  const localTips = useMemo(() => buildLocalNutritionTips(daySnapshot), [daySnapshot]);
+
+  // Gemini advice is tied to the exact day state it was computed for; any new log falls back to local tips.
+  const adviceKey = `${dayLog.date}|${dayLog.meals.length}|${totals.calories}|${totals.protein}|${dayLog.waterMl}`;
+  const [aiAdvice, setAiAdvice] = useState<{ key: string; result: NutritionAdviceResult } | null>(null);
+  const [isAdviceLoading, setIsAdviceLoading] = useState(false);
+  const geminiKeyActive = hasActiveGeminiKey();
+  const currentAdvice = aiAdvice && aiAdvice.key === adviceKey ? aiAdvice.result : null;
+
+  const handleRequestAiAdvice = async () => {
+    const requestKey = adviceKey;
+    setIsAdviceLoading(true);
+    try {
+      const result = await generateAiNutritionAdvice(daySnapshot);
+      setAiAdvice({ key: requestKey, result });
+    } finally {
+      setIsAdviceLoading(false);
+    }
+  };
+
   return (
     <ProGuard
       title="Modulul Nutriție Sportivă PRO"
@@ -865,6 +913,14 @@ export const NutritionView: React.FC<NutritionViewProps> = ({ onUpgradeClick, pr
             />
           </div>
         </div>
+
+        <NutritionTipsCard
+          tips={currentAdvice ? currentAdvice.tips : localTips}
+          engine={currentAdvice ? currentAdvice.engine : LOCAL_TIPS_ENGINE}
+          advancedAvailable={geminiKeyActive}
+          isLoading={isAdviceLoading}
+          onRequestAiAdvice={handleRequestAiAdvice}
+        />
 
         {/* ========================================================= */}
         {/* 5. COMPLETELY DYNAMIC MEALS SECTION (2026 ARCHITECTURE)   */}

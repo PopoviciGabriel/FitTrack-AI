@@ -43,6 +43,7 @@ import {
   deleteCustomExercise,
   filterExercises,
 } from "../services/exerciseService";
+import { DEFAULT_REST_SECONDS, startRestTimer } from "../services/restTimerService";
 import { SetRow } from "./SetRow";
 import { RestTimer } from "./RestTimer";
 
@@ -54,8 +55,6 @@ export interface WorkoutEditorProps {
   allWorkouts?: Workout[];
   onSetCompleted?: () => void;
 }
-
-const DEFAULT_REST_SECONDS = 90;
 
 /** Deep copy of the workout's entries; a workout from an earlier day starts again with every set unchecked. */
 const buildInitialEntries = (workout?: Workout): ExerciseEntry[] => {
@@ -73,8 +72,6 @@ export const WorkoutEditor = ({
 }: WorkoutEditorProps) => {
   const [title, setTitle] = useState(initialWorkout?.title || "Antrenament Forță");
   const [entries, setEntries] = useState<ExerciseEntry[]>(() => buildInitialEntries(initialWorkout));
-  const [showRestTimer, setShowRestTimer] = useState(false);
-  const [restTimerSignal, setRestTimerSignal] = useState(0);
 
   // A saved workout re-opened on a later day is a new session: its stored sets are last session's history.
   const isNewDaySession = useMemo(
@@ -224,8 +221,10 @@ export const WorkoutEditor = ({
     return map;
   }, [allWorkouts, historyExcludeId]);
 
-  // Progressive overload targets, recomputed only when the exercise list or history changes
+  // Progressive overload targets come only from earlier sessions of this same workout type,
+  // recomputed when the exercise list, the history or the title (which defines the type) changes
   const exerciseSignature = entries.map(e => `${e.id}:${e.exerciseId}:${e.name}`).join("|");
+  const workoutKey = initialWorkout?.id ?? "";
   const overloadByEntry = useMemo(() => {
     const map = new Map<string, OverloadSuggestion | null>();
     entries.forEach(entry => {
@@ -234,11 +233,12 @@ export const WorkoutEditor = ({
         getOverloadSuggestion(entry.name, allWorkouts, {
           exerciseId: entry.exerciseId,
           excludeWorkoutId: historyExcludeId,
+          workoutType: { workoutKey, title },
         })
       );
     });
     return map;
-  }, [exerciseSignature, allWorkouts, historyExcludeId]);
+  }, [exerciseSignature, allWorkouts, historyExcludeId, workoutKey, title]);
 
   // Check if a specific completed set is a new PR
   const checkIsPR = (entry: ExerciseEntry, targetSet: Set): boolean => {
@@ -283,8 +283,7 @@ export const WorkoutEditor = ({
         .find(e => e.id === entryId)
         ?.sets.find(s => s.id === setId)?.completed;
       if (!wasCompleted) {
-        setRestTimerSignal(n => n + 1);
-        setShowRestTimer(true);
+        startRestTimer(DEFAULT_REST_SECONDS, { minimized: false });
         onSetCompleted?.();
       }
     }
@@ -616,12 +615,7 @@ export const WorkoutEditor = ({
         </button>
       </footer>
 
-      <RestTimer
-        isOpen={showRestTimer}
-        onClose={() => setShowRestTimer(false)}
-        initialSeconds={DEFAULT_REST_SECONDS}
-        startSignal={restTimerSignal}
-      />
+      <RestTimer placement="editor" />
 
       {/* Exercise Search Bottom Sheet / Modal */}
       <AnimatePresence>

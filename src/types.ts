@@ -88,8 +88,156 @@ export interface AiFoodsResponse {
   foods: AiIdentifiedFood[];
 }
 
-/** Why the LLM-based meal parser could not be used. */
-export type AiUnavailableReason = "no_api_key" | "request_failed" | "unrecognized_foods";
+/** Engine that produced a nutrition result: Gemini online, or the on-device FitTrack Smart Engine. */
+export type NutritionEngineSource = "gemini" | "local";
+
+/** Why a nutrition request ran on the local engine instead of Gemini. */
+export type LocalEngineReason = "no_api_key" | "invalid_key" | "offline" | "api_unavailable" | "timeout";
+
+export interface NutritionEngineMeta {
+  source: NutritionEngineSource;
+  /** Gemini model that actually answered (only when `source` is "gemini"). */
+  model?: string;
+  /** Only when `source` is "local". */
+  localReason?: LocalEngineReason;
+}
+
+export interface MacroTotals {
+  calories: number;
+  protein: number;
+  carbs: number;
+  fats: number;
+  fiber: number;
+}
+
+export interface MealTextAnalysis {
+  items: MacroMealItem[];
+  /** Fragments the local engine could not match to any food (always empty for Gemini results). */
+  unrecognized: string[];
+  engine: NutritionEngineMeta;
+}
+
+export interface MealSuggestionResult {
+  suggestion: AiMealSuggestion;
+  engine: NutritionEngineMeta;
+}
+
+export type NutritionTipKind = "protein" | "calories" | "carbs" | "fats" | "fiber" | "hydration" | "timing" | "success";
+
+export type NutritionTipPriority = "high" | "medium" | "low";
+
+export interface NutritionTip {
+  id: string;
+  kind: NutritionTipKind;
+  priority: NutritionTipPriority;
+  title: string;
+  text: string;
+}
+
+/** What the user ate so far on one day versus the day's targets. */
+export interface NutritionDaySnapshot {
+  goalType: MacroGoal["type"];
+  consumed: MacroTotals;
+  targets: MacroTotals;
+  waterMl: number;
+  targetWaterMl: number;
+  mealsLogged: number;
+  /** Names of the foods logged that day (context for Gemini). */
+  loggedFoods: string[];
+  /** Local hour (0-23) used to pace the day; only meaningful when `isToday`. */
+  hour: number;
+  isToday: boolean;
+}
+
+export interface NutritionAdviceResult {
+  tips: NutritionTip[];
+  engine: NutritionEngineMeta;
+}
+
+export type DictionaryFoodGroup =
+  | "pasare"
+  | "carne_rosie"
+  | "mezeluri"
+  | "peste"
+  | "fructe_mare"
+  | "oua"
+  | "lactate"
+  | "branzeturi"
+  | "cereale"
+  | "paine"
+  | "leguminoase"
+  | "cartofi"
+  | "legume"
+  | "fructe"
+  | "nuci"
+  | "grasimi"
+  | "dulciuri"
+  | "bauturi"
+  | "suplimente"
+  | "preparate"
+  | "sosuri";
+
+/** Gender/number of the Romanian food name, used to agree cooking adjectives ("fiert", "fiartă", "fierți", "fierte"). */
+export type GrammaticalForm = "m" | "f" | "mpl" | "fpl";
+
+/** One entry of the offline Romanian-English food dictionary. Macros are per 100 g. */
+export interface DictionaryFood {
+  id: string;
+  name: string;
+  /** Normalized phrases (lowercase, no diacritics), Romanian and English. */
+  keys: readonly string[];
+  group: DictionaryFoodGroup;
+  form: GrammaticalForm;
+  /** Values per 100 g in the state the food is usually weighed: raw meat/fish, dry grains and legumes. */
+  calories: number;
+  protein: number;
+  carbs: number;
+  fats: number;
+  fiber: number;
+  /** Grams assumed when the text gives no quantity. */
+  portion: number;
+  pieceGrams?: number;
+  sliceGrams?: number;
+  spoonGrams?: number;
+  cupGrams?: number;
+  canGrams?: number;
+  /** g/ml, for foods measured by volume. */
+  density?: number;
+  /** Multiplier applied to per-100 g values once a dry food is boiled (rice, pasta, legumes absorb water). */
+  cookedFactor?: number;
+  /** Already a cooked dish: cooking-method words do not change its values. */
+  prepared?: boolean;
+}
+
+export type CookingMethod = "raw" | "boiled" | "steamed" | "grilled" | "baked" | "pan" | "fried" | "breaded" | "airfried" | "smoked";
+
+export type SmartFoodSource = "dictionary" | "personal" | "database";
+
+/** One food recognized offline in a free-text meal description. */
+export interface SmartFoodMatch {
+  /** Display name, cooking method included ("Piept de pui la grătar"). */
+  label: string;
+  group?: DictionaryFoodGroup;
+  dictionaryId?: string;
+  grams: number;
+  /** False when the text gave no quantity and a standard portion was assumed. */
+  explicitQuantity: boolean;
+  method: CookingMethod | null;
+  /** Per 100 g, cooking adjustments (water loss, absorbed oil, breading) already applied. */
+  per100: MacroTotals;
+  source: SmartFoodSource;
+}
+
+export interface SmartTextParse {
+  foods: SmartFoodMatch[];
+  /** Original text fragments that contain no recognizable food. */
+  unrecognized: string[];
+}
+
+export interface SmartParseOptions {
+  /** Previously logged products (e.g. scanned via Open Food Facts) matched by name before the generic dictionary. */
+  personalFoods?: readonly MacroMealItem[];
+}
 
 /** `torch` is part of the Image Capture spec but missing from the TypeScript DOM typings. */
 export interface TorchTrackCapabilities extends MediaTrackCapabilities {
@@ -242,8 +390,19 @@ export interface OverloadOptions {
   exerciseId?: string;
   /** Workout being edited: its live entries are ignored, its saved snapshots are kept. */
   excludeWorkoutId?: string;
+  /**
+   * Workout the target is computed for: only sessions of this same workout type are used as history,
+   * so the exercise done in other workouts of the week never sets the target.
+   */
+  workoutType?: WorkoutTypeRef;
   /** Reference "now" (injectable for tests). Sessions from this calendar day are not used as history. */
   today?: Date;
+}
+
+/** Identifies a kind of workout: a saved workout id (empty for an unsaved one) plus its title. */
+export interface WorkoutTypeRef {
+  workoutKey: string;
+  title: string;
 }
 
 export interface OverloadSuggestion {
@@ -282,6 +441,21 @@ export interface TimelineSession {
   /** Local calendar day, YYYY-MM-DD. */
   dayKey: string;
   entries: ExerciseEntry[];
+}
+
+/** Global rest timer, shared by the workout editor and every other screen. */
+export interface RestTimerState {
+  /** The timer is on screen (running, paused or finished). */
+  isActive: boolean;
+  isRunning: boolean;
+  /** Countdown reached zero; stays true until the timer is restarted or closed. */
+  isFinished: boolean;
+  /** Shown as the compact floating pill instead of the full card. */
+  isMinimized: boolean;
+  totalSeconds: number;
+  remainingSeconds: number;
+  /** Epoch ms at which a running countdown reaches zero; null while paused, finished or idle. */
+  endsAt: number | null;
 }
 
 export interface LicenseActivationResult {

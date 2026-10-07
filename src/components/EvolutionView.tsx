@@ -9,10 +9,10 @@ import {
   RotateCcw
 } from "lucide-react";
 import { Workout, ExerciseEntry, Set, TimelineSession, CustomMuscleGroup, PRESET_EXERCISES } from "../types";
-import { cn } from "../lib/utils";
+import { cn, formatDate } from "../lib/utils";
 import {
   buildDailySessions,
-  findPreviousDayEntry,
+  findPreviousSameWorkoutEntry,
   parseDateToTimestamp,
 } from "../services/algorithmService";
 import { customGroupToAnalyticsCategory, isCustomExerciseId } from "../services/exerciseService";
@@ -369,15 +369,16 @@ export const EvolutionView = ({
         }
       });
 
-      // Compare only with the latest session from an EARLIER calendar day:
-      // edits made earlier today are never used as the baseline.
+      // Baseline = latest earlier-day session of this same workout (Pull A vs Pull A);
+      // other workouts of the week and earlier saves from today are never used.
       let prevSession: {
         bestWeight: number;
         bestReps: number;
         workoutTitle: string;
+        date: string;
       } | null = null;
 
-      const previous = findPreviousDayEntry(allChronologicalWorkouts, latestW.dayKey, (e) => {
+      const previous = findPreviousSameWorkoutEntry(allChronologicalWorkouts, latestW, (e) => {
         const prevCanonical = resolveFullExerciseName(e.name || "", e.exerciseId);
         if (prevCanonical.toLowerCase() !== canonicalName.toLowerCase()) return false;
         const best = getBestSet(e.sets);
@@ -390,6 +391,7 @@ export const EvolutionView = ({
           bestWeight: best.weight,
           bestReps: best.reps,
           workoutTitle: previous.session.title,
+          date: previous.session.date,
         };
       }
 
@@ -428,6 +430,7 @@ export const EvolutionView = ({
 
     return {
       workoutTitle: latestW.title,
+      workoutDate: latestW.date,
       exercises: exercisesAnalysis,
       improvedCount,
       maintainedCount,
@@ -740,45 +743,48 @@ export const EvolutionView = ({
                   }
                 }
 
-                // Mapare stiluri per stare coloristică
+                // Light mode: solid tinted boxes with visible borders and near-black values for gym lighting.
+                // Dark mode keeps its original look (borders stay transparent there).
                 const themeStyles = {
                   red: {
-                    box: "bg-red-50/90 dark:bg-red-950/40 border-red-200/90 dark:border-red-500/30",
-                    title: "text-red-700 dark:text-red-400",
-                    pill: "bg-white/90 dark:bg-red-900/30 border-red-200/80 dark:border-red-500/30",
+                    box: "bg-red-50 border-red-300 dark:bg-red-950/40 dark:border-transparent",
+                    titleDark: "dark:text-red-400",
+                    pill: "bg-white border-red-300 dark:bg-red-900/30 dark:border-transparent",
                     weight: "text-red-700 dark:text-red-300",
-                    kg: "text-red-600/80 dark:text-red-400",
-                    multiplier: "text-red-300 dark:text-red-500/50",
+                    kg: "text-red-700 dark:text-red-400",
+                    multiplier: "text-red-400 dark:text-red-500/50",
                     reps: "text-slate-900 dark:text-white",
-                    repsUnit: "text-slate-500 dark:text-zinc-400",
-                    zeroRef: "text-red-600/80 dark:text-red-400/80 bg-red-100/60 dark:bg-red-900/30",
+                    repsUnit: "text-slate-600 dark:text-zinc-400",
+                    zeroRef: "text-red-800 bg-red-100 border-red-300 dark:text-red-400/80 dark:bg-red-900/30 dark:border-transparent",
                   },
                   blue: {
-                    box: "bg-blue-50/90 dark:bg-blue-950/40 border-blue-200/90 dark:border-blue-500/30",
-                    title: "text-blue-700 dark:text-blue-400",
-                    pill: "bg-white/90 dark:bg-blue-900/30 border-blue-200/80 dark:border-blue-500/30",
+                    box: "bg-blue-50 border-blue-300 dark:bg-blue-950/40 dark:border-transparent",
+                    titleDark: "dark:text-blue-400",
+                    pill: "bg-white border-blue-300 dark:bg-blue-900/30 dark:border-transparent",
                     weight: "text-blue-700 dark:text-blue-400",
-                    kg: "text-blue-600/80 dark:text-blue-400",
-                    multiplier: "text-blue-300 dark:text-blue-500/50",
-                    reps: "text-slate-950 dark:text-white",
-                    repsUnit: "text-slate-500 dark:text-zinc-400",
-                    zeroRef: "text-blue-600/80 dark:text-blue-400/80 bg-blue-100/60 dark:bg-blue-900/30",
+                    kg: "text-blue-700 dark:text-blue-400",
+                    multiplier: "text-blue-400 dark:text-blue-500/50",
+                    reps: "text-slate-900 dark:text-white",
+                    repsUnit: "text-slate-600 dark:text-zinc-400",
+                    zeroRef: "text-blue-800 bg-blue-100 border-blue-300 dark:text-blue-400/80 dark:bg-blue-900/30 dark:border-transparent",
                   },
                   neutral: {
-                    box: "bg-slate-100/80 dark:bg-zinc-800/50 border-slate-200/80 dark:border-white/10",
-                    title: "text-slate-600 dark:text-zinc-400",
-                    pill: "bg-white/90 dark:bg-zinc-700/40 border-slate-200/70 dark:border-white/10",
-                    weight: "text-slate-800 dark:text-zinc-200",
-                    kg: "text-slate-500 dark:text-zinc-400",
-                    multiplier: "text-slate-300 dark:text-zinc-600",
-                    reps: "text-slate-800 dark:text-zinc-200",
-                    repsUnit: "text-slate-500 dark:text-zinc-400",
-                    zeroRef: "text-slate-500 dark:text-zinc-400 bg-slate-200/60 dark:bg-zinc-800/60",
+                    box: "bg-slate-100 border-slate-300/80 dark:bg-zinc-800/50 dark:border-transparent",
+                    titleDark: "dark:text-zinc-400",
+                    pill: "bg-white border-slate-300 dark:bg-zinc-700/40 dark:border-transparent",
+                    weight: "text-slate-900 dark:text-zinc-200",
+                    kg: "text-slate-600 dark:text-zinc-400",
+                    multiplier: "text-slate-400 dark:text-zinc-600",
+                    reps: "text-slate-900 dark:text-zinc-200",
+                    repsUnit: "text-slate-600 dark:text-zinc-400",
+                    zeroRef: "text-slate-700 bg-slate-200 border-slate-300 dark:text-zinc-400 dark:bg-zinc-800/60 dark:border-transparent",
                   },
                 };
 
                 const prevStyle = themeStyles[prevColor];
                 const curStyle = themeStyles[curColor];
+                const sessionBadgeBase =
+                  "inline-block px-2 py-0.5 rounded-lg text-[10px] sm:text-[11px] font-black uppercase tracking-wide leading-tight text-center whitespace-normal dark:px-0 dark:py-0 dark:rounded-none dark:bg-transparent";
 
                 return (
                   <div
@@ -795,22 +801,22 @@ export const EvolutionView = ({
                       </div>
 
                       {ex.status === "improved" ? (
-                        <span className="inline-flex items-center gap-1.5 text-[10px] font-black px-2.5 py-1 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shrink-0 whitespace-nowrap">
+                        <span className="inline-flex items-center gap-1.5 text-[10px] font-black px-2.5 py-1 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-500/20 shrink-0 whitespace-nowrap">
                           <Sparkles className="size-3" />
                           {ex.diffWeight > 0 ? `+${ex.diffWeight} kg` : `+${ex.diffReps} reps`} · Progres
                         </span>
                       ) : ex.status === "maintained" ? (
-                        <span className="inline-flex items-center gap-1.5 text-[10px] font-black px-2.5 py-1 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 shrink-0 whitespace-nowrap">
+                        <span className="inline-flex items-center gap-1.5 text-[10px] font-black px-2.5 py-1 rounded-xl bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-300 dark:border-blue-500/20 shrink-0 whitespace-nowrap">
                           <CheckCircle2 className="size-3" />
                           = Constant
                         </span>
                       ) : ex.status === "regressed" ? (
-                        <span className="inline-flex items-center gap-1.5 text-[10px] font-black px-2.5 py-1 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 shrink-0 whitespace-nowrap">
+                        <span className="inline-flex items-center gap-1.5 text-[10px] font-black px-2.5 py-1 rounded-xl bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-400 border border-amber-300 dark:border-amber-500/20 shrink-0 whitespace-nowrap">
                           <RotateCcw className="size-3" />
                           {ex.diffWeight < 0 ? `${ex.diffWeight} kg` : `${ex.diffReps} reps`} · Deload
                         </span>
                       ) : (
-                        <span className="text-[10px] font-black px-2.5 py-1 rounded-xl bg-slate-200/70 dark:bg-zinc-800 text-slate-600 dark:text-zinc-400 shrink-0">
+                        <span className="text-[10px] font-black px-2.5 py-1 rounded-xl bg-slate-200 dark:bg-zinc-800 text-slate-700 dark:text-zinc-400 border border-slate-300 dark:border-transparent shrink-0">
                           Sesiune nouă
                         </span>
                       )}
@@ -829,16 +835,21 @@ export const EvolutionView = ({
                     {/* Symmetrical Two-Box Comparison: Anterior vs Curent */}
                     <div className="pt-3 border-t border-slate-200/80 dark:border-white/5 grid grid-cols-2 gap-2.5 sm:gap-3">
                       {/* Sesiune Precedentă */}
-                      <div className={`p-2.5 sm:p-3.5 rounded-2xl ${prevStyle.box} flex flex-col items-center justify-between text-center min-w-0 shadow-2xs transition-all`}>
-                        <div className="w-full flex flex-col items-center text-center mb-2 min-w-0">
-                          <span className={`text-[10px] sm:text-[11px] font-black uppercase tracking-wide leading-tight ${prevStyle.title} block text-center whitespace-normal`}>
+                      <div className={`p-2.5 sm:p-3.5 rounded-2xl border ${prevStyle.box} flex flex-col items-center justify-between text-center min-w-0 shadow-2xs transition-all`}>
+                        <div className="w-full flex flex-col items-center gap-1 text-center mb-2 min-w-0">
+                          <span className={`${sessionBadgeBase} bg-slate-800 text-white ${prevStyle.titleDark}`}>
                             Sesiune Precedentă
                           </span>
+                          {ex.prevSession && (
+                            <span className="text-[10px] font-bold text-slate-600 dark:text-zinc-500 leading-none">
+                              {formatDate(ex.prevSession.date)}
+                            </span>
+                          )}
                         </div>
 
                         <div className="w-full flex items-center justify-center min-w-0">
                           {ex.prevSession ? (
-                            <div className={`inline-flex items-center justify-center flex-wrap gap-x-1.5 gap-y-0.5 px-2 sm:px-2.5 py-1.5 rounded-xl ${prevStyle.pill} max-w-full text-center`}>
+                            <div className={`inline-flex items-center justify-center flex-wrap gap-x-1.5 gap-y-0.5 px-2 sm:px-2.5 py-1.5 rounded-xl border ${prevStyle.pill} max-w-full text-center`}>
                               <div className="inline-flex items-baseline gap-0.5 shrink-0">
                                 <span className={`text-base sm:text-lg font-black ${prevStyle.weight} tracking-tight leading-none`}>
                                   {ex.prevSession.bestWeight}
@@ -854,13 +865,13 @@ export const EvolutionView = ({
                                 <span className={`text-sm sm:text-base font-black ${prevStyle.reps} tracking-tight leading-none`}>
                                   {ex.prevSession.bestReps}
                                 </span>
-                                <span className={`text-[10px] font-medium ${prevStyle.repsUnit} lowercase`}>
+                                <span className={`text-[10px] font-bold ${prevStyle.repsUnit} lowercase`}>
                                   reps
                                 </span>
                               </div>
                             </div>
                           ) : (
-                            <span className={`px-2.5 py-1 rounded-xl text-[10px] sm:text-[11px] font-semibold ${prevStyle.zeroRef} italic text-center`}>
+                            <span className={`px-2.5 py-1 rounded-xl border text-[10px] sm:text-[11px] font-bold ${prevStyle.zeroRef} italic text-center`}>
                               Referință zero
                             </span>
                           )}
@@ -868,15 +879,18 @@ export const EvolutionView = ({
                       </div>
 
                       {/* Sesiune Curentă */}
-                      <div className={`p-2.5 sm:p-3.5 rounded-2xl ${curStyle.box} flex flex-col items-center justify-between text-center min-w-0 shadow-2xs transition-all`}>
-                        <div className="w-full flex flex-col items-center text-center mb-2 min-w-0">
-                          <span className={`text-[10px] sm:text-[11px] font-black uppercase tracking-wide leading-tight ${curStyle.title} block text-center whitespace-normal`}>
+                      <div className={`p-2.5 sm:p-3.5 rounded-2xl border ${curStyle.box} flex flex-col items-center justify-between text-center min-w-0 shadow-2xs transition-all`}>
+                        <div className="w-full flex flex-col items-center gap-1 text-center mb-2 min-w-0">
+                          <span className={`${sessionBadgeBase} bg-emerald-600 text-white ${curStyle.titleDark}`}>
                             Sesiune Curentă
+                          </span>
+                          <span className="text-[10px] font-bold text-slate-600 dark:text-zinc-500 leading-none">
+                            {formatDate(latestWorkoutAnalysis.workoutDate)}
                           </span>
                         </div>
 
                         <div className="w-full flex items-center justify-center min-w-0">
-                          <div className={`inline-flex items-center justify-center flex-wrap gap-x-1.5 gap-y-0.5 px-2 sm:px-2.5 py-1.5 rounded-xl ${curStyle.pill} max-w-full text-center`}>
+                          <div className={`inline-flex items-center justify-center flex-wrap gap-x-1.5 gap-y-0.5 px-2 sm:px-2.5 py-1.5 rounded-xl border ${curStyle.pill} max-w-full text-center`}>
                             <div className="inline-flex items-baseline gap-0.5 shrink-0">
                               <span className={`text-base sm:text-lg font-black ${curStyle.weight} tracking-tight leading-none`}>
                                 {ex.currentWeight}
@@ -892,7 +906,7 @@ export const EvolutionView = ({
                               <span className={`text-sm sm:text-base font-black ${curStyle.reps} tracking-tight leading-none`}>
                                 {ex.currentReps}
                               </span>
-                              <span className={`text-[10px] font-medium ${curStyle.repsUnit} lowercase`}>
+                              <span className={`text-[10px] font-bold ${curStyle.repsUnit} lowercase`}>
                                 reps
                               </span>
                             </div>

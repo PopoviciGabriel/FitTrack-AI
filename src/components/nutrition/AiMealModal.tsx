@@ -11,9 +11,10 @@ import {
   Utensils,
   Lightbulb
 } from "lucide-react";
-import { AiMealSuggestion, MacroMealItem, MealSlotCategory } from "../../types";
-import { AiApiError, AiUnavailableError, generateNutritionSuggestion, parseNaturalLanguageMeal } from "../../services/geminiService";
-import { countQuantifiedFoods } from "../../services/foodSearchService";
+import { AiMealSuggestion, MacroMealItem, MealSlotCategory, NutritionEngineMeta } from "../../types";
+import { generateNutritionSuggestion, hasActiveGeminiKey, parseNaturalLanguageMeal } from "../../services/geminiService";
+import { countExplicitFoods } from "../../services/foodSearchService";
+import { EngineModeBadge, EngineResultBadge } from "./NutritionEngineBadge";
 
 interface AiMealModalProps {
   isOpen: boolean;
@@ -55,7 +56,10 @@ export const AiMealModal: React.FC<AiMealModalProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [suggestion, setSuggestion] = useState<AiMealSuggestion | null>(null);
   const [identifiedFoods, setIdentifiedFoods] = useState<MacroMealItem[]>([]);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [unrecognized, setUnrecognized] = useState<string[]>([]);
+  const [engine, setEngine] = useState<NutritionEngineMeta | null>(null);
+  const [infoMsg, setInfoMsg] = useState<string | null>(null);
+  const advancedMode = React.useMemo(() => isOpen && hasActiveGeminiKey(), [isOpen]);
 
   React.useEffect(() => {
     setSlot(defaultCategory);
@@ -68,14 +72,20 @@ export const AiMealModal: React.FC<AiMealModalProps> = ({
     setIsLoading(true);
     setSuggestion(null);
     setIdentifiedFoods([]);
-    setErrorMsg(null);
+    setUnrecognized([]);
+    setEngine(null);
+    setInfoMsg(null);
 
     try {
       // A list of weighed foods ("60g pui, 25g cașcaval, 55g pâine") is itemised, not turned into a single recipe.
-      if (countQuantifiedFoods(textToUse) >= 2) {
-        const foods = await parseNaturalLanguageMeal(textToUse.trim(), slot);
-        setIdentifiedFoods(foods);
-        return;
+      if (countExplicitFoods(textToUse) >= 2) {
+        const analysis = await parseNaturalLanguageMeal(textToUse.trim(), slot);
+        setEngine(analysis.engine);
+        setUnrecognized(analysis.unrecognized);
+        if (analysis.items.length > 0) {
+          setIdentifiedFoods(analysis.items);
+          return;
+        }
       }
 
       const result = await generateNutritionSuggestion(
@@ -84,14 +94,12 @@ export const AiMealModal: React.FC<AiMealModalProps> = ({
         targetCalories ? Math.round(targetCalories / 4) : undefined,
         targetProtein ? Math.round(targetProtein / 4) : undefined
       );
-      setSuggestion(result);
+      setSuggestion(result.suggestion);
+      setEngine(result.engine);
+      setUnrecognized([]);
     } catch (e: unknown) {
-      if (e instanceof AiUnavailableError || e instanceof AiApiError) {
-        setErrorMsg(e.message);
-      } else {
-        console.error("Meal generation error:", e);
-        setErrorMsg("A apărut o problemă la procesarea cererii. Te rugăm să încerci din nou.");
-      }
+      console.error("Meal generation error:", e);
+      setInfoMsg("Nu am putut procesa cererea. Încearcă din nou sau reformulează cu alimente și gramaje.");
     } finally {
       setIsLoading(false);
     }
@@ -145,14 +153,12 @@ export const AiMealModal: React.FC<AiMealModalProps> = ({
               <Sparkles className="size-5" />
             </div>
             <div>
-              <h2 className="text-lg font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
+              <h2 className="text-lg font-black text-slate-900 dark:text-white tracking-tight flex flex-wrap items-center gap-2">
                 AI Nutrition Scanner & Chef
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/30 font-black">
-                  GEMINI 3.8 FLASH
-                </span>
+                <EngineModeBadge advanced={advancedMode} />
               </h2>
               <p className="text-xs text-slate-500 dark:text-zinc-400">
-                Spune ce alimente ai sau ce dorești, iar AI-ul calculează macro-urile exacte
+                Spune ce alimente ai sau ce dorești, iar FitTrack calculează macro-urile exacte
               </p>
             </div>
           </div>
@@ -238,22 +244,19 @@ export const AiMealModal: React.FC<AiMealModalProps> = ({
             {isLoading ? (
               <>
                 <div className="size-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                <span>Analizez & Calculez cu Gemini...</span>
+                <span>{advancedMode ? "Analizez & Calculez cu Gemini..." : "Calculez macro-urile..."}</span>
               </>
             ) : (
               <>
                 <Sparkles className="size-4" />
-                <span>Generează Rețetă & Macros cu AI</span>
+                <span>Generează Rețetă & Macros</span>
               </>
             )}
           </button>
 
-          {errorMsg && !isLoading && (
-            <div
-              role="alert"
-              className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-300 text-xs font-semibold"
-            >
-              {errorMsg}
+          {infoMsg && !isLoading && (
+            <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-300 text-xs font-semibold">
+              {infoMsg}
             </div>
           )}
 
@@ -275,13 +278,22 @@ export const AiMealModal: React.FC<AiMealModalProps> = ({
           {identifiedFoods.length > 0 && !isLoading && (
             <div className="p-5 rounded-3xl bg-slate-50 dark:bg-zinc-900 border border-purple-500/30 shadow-xl space-y-4 animate-in fade-in zoom-in-95 duration-200">
               <div>
-                <span className="text-[10px] font-black uppercase tracking-widest text-purple-400">
-                  Alimente Identificate ({identifiedFoods.length})
-                </span>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-purple-400">
+                    Alimente Identificate ({identifiedFoods.length})
+                  </span>
+                  {engine && <EngineResultBadge engine={engine} />}
+                </div>
                 <p className="text-xs text-slate-500 dark:text-zinc-400 mt-1">
                   Fiecare aliment menționat a fost extras separat, cu macro-urile lui.
                 </p>
               </div>
+
+              {unrecognized.length > 0 && (
+                <p className="text-[11px] text-amber-600 dark:text-amber-400/90">
+                  Nu am recunoscut: {unrecognized.join(", ")}. Le poți adăuga din Căutarea de alimente.
+                </p>
+              )}
 
               <ul className="space-y-2">
                 {identifiedFoods.map((food) => (
@@ -324,9 +336,12 @@ export const AiMealModal: React.FC<AiMealModalProps> = ({
             <div className="p-5 rounded-3xl bg-slate-50 dark:bg-zinc-900 border border-purple-500/30 shadow-xl space-y-4 animate-in fade-in zoom-in-95 duration-200">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <span className="text-[10px] font-black uppercase tracking-widest text-purple-400">
-                    Rețetă Optimizată Hypertrophy
-                  </span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-purple-400">
+                      Rețetă Optimizată Hypertrophy
+                    </span>
+                    {engine && <EngineResultBadge engine={engine} />}
+                  </div>
                   <h3 className="text-lg font-black text-slate-900 dark:text-white mt-0.5">
                     {suggestion.name}
                   </h3>

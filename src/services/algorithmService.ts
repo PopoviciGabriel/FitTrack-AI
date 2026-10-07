@@ -8,6 +8,7 @@ import {
   ProgressEntry,
   TimelineSession,
   Workout,
+  WorkoutTypeRef,
 } from "../types";
 
 /**
@@ -185,7 +186,7 @@ export function calculateDynamicTDEE(
 // Algorithm 2: Hypertrophy engine (progressive overload)
 // ---------------------------------------------------------------------------
 
-interface SessionSnapshot {
+interface SessionSnapshot extends WorkoutTypeRef {
   time: number;
   date: string;
   entries: readonly ExerciseEntry[];
@@ -291,6 +292,35 @@ export function findPreviousDayEntry(
   return null;
 }
 
+/**
+ * Two sessions are the same kind of workout (e.g. both "Pull A") when they are states of the same
+ * saved workout, or when their titles match ignoring case, diacritics and spacing. The title rule
+ * covers workouts started again from the same routine, which get a new id every time.
+ */
+export function isSameWorkoutType(a: WorkoutTypeRef, b: WorkoutTypeRef): boolean {
+  if (a.workoutKey && a.workoutKey === b.workoutKey) return true;
+  const titleA = typeof a.title === "string" ? normalizeName(a.title) : "";
+  return titleA !== "" && typeof b.title === "string" && titleA === normalizeName(b.title);
+}
+
+/**
+ * Baseline for session-to-session progress: the most recent entry matching `matches` inside a
+ * session of the same workout type as `reference`, from a calendar day strictly before both the
+ * reference session and `today`. The same exercise done in other workouts of the week is ignored,
+ * and so are intermediate saves made earlier on the same day.
+ */
+export function findPreviousSameWorkoutEntry(
+  dailySessions: readonly TimelineSession[],
+  reference: TimelineSession,
+  matches: (entry: ExerciseEntry) => boolean,
+  today: Date = new Date()
+): { session: TimelineSession; entry: ExerciseEntry } | null {
+  const todayKey = toLocalDayKey(today.getTime());
+  const cutoffDayKey = reference.dayKey < todayKey ? reference.dayKey : todayKey;
+  const sameType = dailySessions.filter((session) => isSameWorkoutType(session, reference));
+  return findPreviousDayEntry(sameType, cutoffDayKey, matches);
+}
+
 /** True when `date` falls on a different local calendar day than `now`. Unparsable dates return false. */
 export function isFromAnotherDay(date: string | null | undefined, now: Date = new Date()): boolean {
   const timestamp = parseDateToTimestamp(date);
@@ -344,12 +374,13 @@ const collectSessions = (
   const sessions: SessionSnapshot[] = [];
   for (const workout of historyData) {
     if (!workout) continue;
+    const ref: WorkoutTypeRef = { workoutKey: workout.id, title: workout.title };
     if (workout.id !== excludeWorkoutId && Array.isArray(workout.entries)) {
-      sessions.push({ time: toTime(workout.date), date: workout.date, entries: workout.entries });
+      sessions.push({ ...ref, time: toTime(workout.date), date: workout.date, entries: workout.entries });
     }
     for (const snapshot of workout.history ?? []) {
       if (snapshot && Array.isArray(snapshot.entries)) {
-        sessions.push({ time: toTime(snapshot.date), date: snapshot.date, entries: snapshot.entries });
+        sessions.push({ ...ref, time: toTime(snapshot.date), date: snapshot.date, entries: snapshot.entries });
       }
     }
   }
@@ -364,7 +395,8 @@ const hasLoggedReps = (set: ExerciseEntry["sets"][number] | null | undefined): s
 /**
  * Looks at the most recent session from an earlier calendar day in which the exercise
  * (same id, or same name ignoring case/diacritics/spacing) was logged and proposes the
- * next target (double progression):
+ * next target (double progression). With `options.workoutType`, only sessions of that same
+ * workout type count (Pull A is never targeted from Pull B):
  *  - every working set reached `targetReps` (default 8) -> add weight
  *  - otherwise                                          -> same weight, +1 rep
  *
@@ -388,9 +420,11 @@ export function getOverloadSuggestion(
     (!!wantedName && typeof entry.name === "string" && normalizeName(entry.name) === wantedName);
 
   const todayKey = toLocalDayKey((options.today ?? new Date()).getTime());
+  const workoutType = options.workoutType;
 
   for (const session of collectSessions(historyData ?? [], options.excludeWorkoutId)) {
-    if (toLocalDayKey(session.time) === todayKey) continue;
+    if (toLocalDayKey(session.time) >= todayKey) continue;
+    if (workoutType && !isSameWorkoutType(session, workoutType)) continue;
 
     const loggedSets = session.entries
       .filter((entry) => entry && matches(entry) && Array.isArray(entry.sets))
