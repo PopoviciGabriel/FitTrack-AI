@@ -20,6 +20,60 @@ interface MetabolicWizardModalProps {
   onApplyGoal: (goal: MacroGoal) => void;
 }
 
+interface BiometricFieldProps {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  allowDecimals?: boolean;
+  onChange: (value: number) => void;
+}
+
+/**
+ * Number field that can be emptied while typing ("25" -> "" -> "17"). The calculation only receives
+ * in-range values as you type; the range and the last valid value are enforced when the field loses focus.
+ */
+const BiometricField: React.FC<BiometricFieldProps> = ({ label, value, min, max, step, allowDecimals = false, onChange }) => {
+  const [draft, setDraft] = useState<string>(String(value));
+
+  const parse = (text: string): number | null => {
+    const normalized = text.trim().replace(",", ".");
+    if (normalized === "") return null;
+    const parsed = allowDecimals ? parseFloat(normalized) : parseInt(normalized, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
+  return (
+    <div>
+      <label className="block text-[11px] font-bold text-slate-600 dark:text-zinc-400 mb-1">
+        {label}
+      </label>
+      <input
+        type="number"
+        inputMode={allowDecimals ? "decimal" : "numeric"}
+        step={step}
+        min={min}
+        max={max}
+        value={draft}
+        onChange={(e) => {
+          const text = e.target.value;
+          setDraft(text);
+          const parsed = parse(text);
+          if (parsed !== null && parsed >= min && parsed <= max) onChange(parsed);
+        }}
+        onBlur={() => {
+          const parsed = parse(draft);
+          const committed = parsed === null ? value : Math.min(max, Math.max(min, parsed));
+          setDraft(String(committed));
+          if (committed !== value) onChange(committed);
+        }}
+        className="w-full bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-white/10 rounded-xl px-3 py-1.5 text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:border-orange-500"
+      />
+    </div>
+  );
+};
+
 export const MetabolicWizardModal: React.FC<MetabolicWizardModalProps> = ({
   isOpen,
   onClose,
@@ -185,51 +239,17 @@ export const MetabolicWizardModal: React.FC<MetabolicWizardModalProps> = ({
                 </div>
               </div>
 
-              {/* Age */}
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 dark:text-zinc-400 mb-1">
-                  Vârstă (ani)
-                </label>
-                <input
-                  type="number"
-                  min={14}
-                  max={90}
-                  value={age}
-                  onChange={(e) => setAge(parseInt(e.target.value, 10) || 25)}
-                  className="w-full bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-white/10 rounded-xl px-3 py-1.5 text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:border-orange-500"
-                />
-              </div>
-
-              {/* Weight */}
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 dark:text-zinc-400 mb-1">
-                  Greutate (kg)
-                </label>
-                <input
-                  type="number"
-                  step="0.5"
-                  min={35}
-                  max={200}
-                  value={weightKg}
-                  onChange={(e) => setWeightKg(parseFloat(e.target.value) || 75)}
-                  className="w-full bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-white/10 rounded-xl px-3 py-1.5 text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:border-orange-500"
-                />
-              </div>
-
-              {/* Height */}
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 dark:text-zinc-400 mb-1">
-                  Înălțime (cm)
-                </label>
-                <input
-                  type="number"
-                  min={120}
-                  max={230}
-                  value={heightCm}
-                  onChange={(e) => setHeightCm(parseInt(e.target.value, 10) || 175)}
-                  className="w-full bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-white/10 rounded-xl px-3 py-1.5 text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:border-orange-500"
-                />
-              </div>
+              <BiometricField label="Vârstă (ani)" value={age} min={14} max={90} onChange={setAge} />
+              <BiometricField
+                label="Greutate (kg)"
+                value={weightKg}
+                min={35}
+                max={200}
+                step={0.5}
+                allowDecimals
+                onChange={setWeightKg}
+              />
+              <BiometricField label="Înălțime (cm)" value={heightCm} min={120} max={230} onChange={setHeightCm} />
             </div>
           </div>
 

@@ -52,6 +52,33 @@ summary {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* iOS touch feel. In the base layer so any explicit Tailwind utility (active:scale-95, transition-colors...) still wins. */
+@layer base {
+  :is(button, [role="button"], a[href], .cursor-pointer):not(input, select, textarea, .fixed) {
+    transition-property: scale, opacity;
+    transition-duration: 150ms;
+    transition-timing-function: ease-out;
+  }
+
+  :is(button, [role="button"], a[href], .cursor-pointer):not(input, select, textarea, .fixed, :disabled, [aria-disabled="true"]):active {
+    scale: 0.97;
+    opacity: 0.9;
+  }
+
+  :is(button, [role="button"], a[href], header, nav) {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* Momentum scrolling inside panels, without dragging the fixed page behind into a rubber-band. */
+  .overflow-y-auto,
+  .overflow-y-scroll,
+  .overflow-auto {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
+  }
+}
+
 /* iOS Safari zooms into any focused field below 16px; fields already at 16px or more keep their size. */
 @supports (-webkit-touch-callout: none) {
   input:not([type="range"], [type="checkbox"], [type="radio"]):not(.text-base, .text-lg, .text-xl, .text-2xl, .text-3xl, .text-4xl, .text-5xl, .text-6xl),

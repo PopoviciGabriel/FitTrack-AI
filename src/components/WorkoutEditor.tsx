@@ -121,9 +121,18 @@ export const WorkoutEditor = ({
     setCustomError(null);
   };
 
-  useSwipeBack(onCancel);
-  useSwipeBack(() => setShowSearch(false), showSearch);
-  useSwipeBack(closeCustomForm, showSearch && showCustomForm);
+  const editorRef = useRef<HTMLDivElement>(null);
+  const searchSheetRef = useRef<HTMLDivElement>(null);
+  const customOverlayRef = useRef<HTMLDivElement>(null);
+  const customFormRef = useRef<HTMLFormElement>(null);
+
+  useSwipeBack(onCancel, { screenRef: editorRef });
+  useSwipeBack(() => setShowSearch(false), { enabled: showSearch, screenRef: searchSheetRef });
+  useSwipeBack(closeCustomForm, {
+    enabled: showSearch && showCustomForm,
+    screenRef: customFormRef,
+    backdropRef: customOverlayRef,
+  });
 
   const handleCreateCustomExercise = (e: React.FormEvent) => {
     e.preventDefault();
@@ -407,9 +416,9 @@ export const WorkoutEditor = ({
   };
 
   return (
-    <div className="fixed inset-0 pt-[env(safe-area-inset-top)] bg-[#f4f7f0] dark:bg-[#0A0A0A] z-[100] flex flex-col animate-in slide-in-from-right-full duration-500 shadow-2xl">
+    <div ref={editorRef} className="fixed inset-0 pt-[env(safe-area-inset-top)] bg-[#f4f7f0] dark:bg-[#0A0A0A] z-[100] flex flex-col animate-in slide-in-from-right-full duration-500 shadow-2xl">
       {/* Top Header */}
-      <header className="px-4 py-3.5 border-b border-slate-200 dark:border-white/5 flex justify-between items-center bg-white/95 dark:bg-[#0A0A0A]/95 backdrop-blur-md gap-2 shrink-0">
+      <header className="select-none px-4 py-3.5 border-b border-slate-200 dark:border-white/5 flex justify-between items-center bg-white/95 dark:bg-[#0A0A0A]/95 backdrop-blur-md gap-2 shrink-0">
         <div className="flex items-center gap-3 min-w-0 flex-1">
           <button 
             onClick={onCancel} 
@@ -588,7 +597,7 @@ export const WorkoutEditor = ({
       </div>
 
       {/* STICKY FOOTER: Fixed at bottom with identical heights and alignment */}
-      <footer className="fixed bottom-0 left-0 right-0 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] bg-white/95 dark:bg-zinc-950/95 border-t border-slate-200 dark:border-white/5 backdrop-blur-xl flex items-center justify-between gap-3 z-50">
+      <footer className="select-none fixed bottom-0 left-0 right-0 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] bg-white/95 dark:bg-zinc-950/95 border-t border-slate-200 dark:border-white/5 backdrop-blur-xl flex items-center justify-between gap-3 z-50">
         <button
           type="button"
           onClick={onCancel}
@@ -626,6 +635,7 @@ export const WorkoutEditor = ({
       <AnimatePresence>
         {showSearch && (
           <motion.div 
+            ref={searchSheetRef}
             initial={{ y: "100%" }}
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
@@ -730,6 +740,7 @@ export const WorkoutEditor = ({
             <AnimatePresence>
               {showCustomForm && (
                 <motion.div
+                  ref={customOverlayRef}
                   key="custom-exercise-form"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
@@ -738,6 +749,7 @@ export const WorkoutEditor = ({
                   onClick={closeCustomForm}
                 >
                   <motion.form
+                    ref={customFormRef}
                     initial={{ y: 40, opacity: 0 }}
                     animate={{ y: 0, opacity: 1 }}
                     exit={{ y: 40, opacity: 0 }}
