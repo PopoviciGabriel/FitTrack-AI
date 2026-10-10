@@ -44,6 +44,7 @@ import {
   filterExercises,
 } from "../services/exerciseService";
 import { DEFAULT_REST_SECONDS, startRestTimer } from "../services/restTimerService";
+import { useSwipeBack } from "../lib/useSwipeBack";
 import { SetRow } from "./SetRow";
 import { RestTimer } from "./RestTimer";
 
@@ -119,6 +120,10 @@ export const WorkoutEditor = ({
     setShowCustomForm(false);
     setCustomError(null);
   };
+
+  useSwipeBack(onCancel);
+  useSwipeBack(() => setShowSearch(false), showSearch);
+  useSwipeBack(closeCustomForm, showSearch && showCustomForm);
 
   const handleCreateCustomExercise = (e: React.FormEvent) => {
     e.preventDefault();
@@ -402,7 +407,7 @@ export const WorkoutEditor = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-[#f4f7f0] dark:bg-[#0A0A0A] z-[100] flex flex-col animate-in slide-in-from-right-full duration-500 shadow-2xl">
+    <div className="fixed inset-0 pt-[env(safe-area-inset-top)] bg-[#f4f7f0] dark:bg-[#0A0A0A] z-[100] flex flex-col animate-in slide-in-from-right-full duration-500 shadow-2xl">
       {/* Top Header */}
       <header className="px-4 py-3.5 border-b border-slate-200 dark:border-white/5 flex justify-between items-center bg-white/95 dark:bg-[#0A0A0A]/95 backdrop-blur-md gap-2 shrink-0">
         <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -437,7 +442,7 @@ export const WorkoutEditor = ({
       </header>
 
       {/* Main Exercise & Set List */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-6 pb-28 no-scrollbar">
+      <div className="flex-1 overflow-y-auto p-4 space-y-6 pb-[calc(env(safe-area-inset-bottom)+7rem)] no-scrollbar">
         {entries.map((entry, index) => {
           const hasAnyPR = entry.sets.some(s => checkIsPR(entry, s));
           const overload = overloadByEntry.get(entry.id) ?? null;
@@ -583,7 +588,7 @@ export const WorkoutEditor = ({
       </div>
 
       {/* STICKY FOOTER: Fixed at bottom with identical heights and alignment */}
-      <footer className="fixed bottom-0 left-0 right-0 p-4 bg-white/95 dark:bg-zinc-950/95 border-t border-slate-200 dark:border-white/5 backdrop-blur-xl flex items-center justify-between gap-3 z-50">
+      <footer className="fixed bottom-0 left-0 right-0 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] bg-white/95 dark:bg-zinc-950/95 border-t border-slate-200 dark:border-white/5 backdrop-blur-xl flex items-center justify-between gap-3 z-50">
         <button
           type="button"
           onClick={onCancel}
@@ -625,7 +630,7 @@ export const WorkoutEditor = ({
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
             transition={{ type: "spring", damping: 35, stiffness: 350 }}
-            className="fixed inset-0 bg-[#f4f7f0] dark:bg-[#0A0A0A] z-[110] p-6 flex flex-col shadow-[0_-20px_100px_rgba(0,0,0,0.4)] overscroll-contain"
+            className="fixed inset-0 bg-[#f4f7f0] dark:bg-[#0A0A0A] z-[110] p-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] flex flex-col shadow-[0_-20px_100px_rgba(0,0,0,0.4)] overscroll-contain"
           >
             <div className="flex items-center gap-6 mb-6 py-2 px-2">
               <button 

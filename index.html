@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport"
-    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=contain" />
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>FitTrack Pro</title>
   <meta name="description"
     content="Aplicație de fitness & hipertrofie: antrenamente, nutriție macro, analize AI și progressive overload." />
@@ -12,9 +12,9 @@
   <meta property="og:description"
     content="Aplicație de fitness & hipertrofie: antrenamente, nutriție macro, analize AI și progressive overload." />
 
-  <!-- Elimină umbra/scrim-ul generat de iOS peste header -->
+  <!-- iOS standalone: conținutul trece sub bara de status (viewport-fit=cover); layout-ul compensează cu env(safe-area-inset-*) -->
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="FitTrack" />
   <meta name="application-name" content="FitTrack" />
   <meta name="mobile-web-app-capable" content="yes" />

@@ -1,8 +1,12 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { 
+  ChevronRight,
+  Play,
   Plus, 
   Sparkles, 
-  Timer as TimerIcon
+  Timer as TimerIcon,
+  Utensils,
+  type LucideIcon
 } from "lucide-react";
 import { 
   LineChart, 
@@ -13,9 +17,10 @@ import {
   Tooltip, 
   ResponsiveContainer 
 } from "recharts";
-import { Workout, ProgressEntry } from "../types";
+import { Workout, ProgressEntry, HomeCoachInsight, HomeInsightAction } from "../types";
 import { cn, formatDate } from "../lib/utils";
-import { getAiErrorMessage, getWorkoutAdvice } from "../services/geminiService";
+import { personalizeHomeInsight } from "../services/geminiService";
+import { buildHomeDayState, buildLocalHomeInsight } from "../services/homeInsightService";
 import { WeightInputModal } from "./WeightInputModal";
 
 export const Card = ({ 
@@ -53,6 +58,61 @@ export const Card = ({
   );
 };
 
+const INSIGHT_ACTION_ICON: Record<HomeInsightAction, LucideIcon> = {
+  start_workout: Play,
+  create_workout: Plus,
+  log_meal: Utensils,
+};
+
+const CoachInsightCard = ({
+  insight,
+  text,
+  onAction,
+  onOpenCoach,
+}: {
+  insight: HomeCoachInsight;
+  text: string;
+  onAction: () => void;
+  onOpenCoach: () => void;
+}) => {
+  const ActionIcon = INSIGHT_ACTION_ICON[insight.action];
+
+  return (
+    <section
+      aria-label="AI Coach Insight"
+      className="rounded-3xl p-5 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl border border-black/[0.06] dark:border-white/[0.08] shadow-sm!"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="flex items-center gap-1.5 text-[13px] font-semibold tracking-tight text-blue-600 dark:text-orange-500">
+          <Sparkles className="size-3.5" aria-hidden="true" />
+          AI Coach Insight
+        </h2>
+        <button
+          type="button"
+          onClick={onOpenCoach}
+          className="-my-3 -mr-2 inline-flex h-11 items-center gap-0.5 px-2 text-[13px] font-medium tracking-tight text-zinc-400 dark:text-zinc-500 active:opacity-50 transition-opacity cursor-pointer"
+        >
+          Detalii
+          <ChevronRight className="size-3.5" aria-hidden="true" />
+        </button>
+      </div>
+
+      <p aria-live="polite" className="mt-2 text-[17px] leading-snug font-medium tracking-tight text-zinc-900 dark:text-zinc-50">
+        {text}
+      </p>
+
+      <button
+        type="button"
+        onClick={onAction}
+        className="mt-4 inline-flex h-11 items-center gap-2 rounded-full px-5 bg-blue-600 dark:bg-orange-500 text-white dark:text-black text-[15px] font-semibold tracking-tight active:scale-[0.97] transition-transform duration-150 cursor-pointer"
+      >
+        <ActionIcon className={cn("size-4", insight.action === "start_workout" && "fill-current")} aria-hidden="true" />
+        {insight.actionLabel}
+      </button>
+    </section>
+  );
+};
+
 export interface HomeViewProps {
   workouts: Workout[];
   progress: ProgressEntry[];
@@ -78,35 +138,48 @@ export const HomeView = ({
   onTabChange,
   onAddProgress
 }: HomeViewProps) => {
-  const [advice, setAdvice] = useState<string>("");
-  const [loadingAdvice, setLoadingAdvice] = useState(false);
   const [showWeightModal, setShowWeightModal] = useState(false);
+  const [dayRefreshTick, setDayRefreshTick] = useState(0);
+  const [aiInsight, setAiInsight] = useState<{ localText: string; text: string } | null>(null);
+
+  // A home-screen PWA stays alive in the background: re-read the day (meals, date, hour) when it comes back.
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") setDayRefreshTick((tick) => tick + 1);
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, []);
+
+  const dayState = useMemo(() => buildHomeDayState(workouts), [workouts, dayRefreshTick]);
+  const localInsight = useMemo(() => buildLocalHomeInsight(dayState), [dayState]);
 
   useEffect(() => {
     let cancelled = false;
-    const fetchAdvice = async () => {
-      setLoadingAdvice(true);
-      let text: string;
-      try {
-        const res = await getWorkoutAdvice(workouts.slice(0, 3));
-        text = res || "Prioritatea următoare: crește greutatea cu 1-2.5 kg sau adaugă o repetare la primul exercițiu compus.";
-      } catch (error) {
-        text = getAiErrorMessage(error);
-      }
-      if (cancelled) return;
-      setAdvice(text);
-      setLoadingAdvice(false);
-    };
-    if (workouts.length > 0) {
-      fetchAdvice();
-    } else {
-      setAdvice("Înregistrează prima sesiune pentru a primi rezumatul esențial cu ce ai de făcut în continuare.");
-      setLoadingAdvice(false);
-    }
+    personalizeHomeInsight(dayState, localInsight).then((text) => {
+      if (!cancelled && text) setAiInsight({ localText: localInsight.text, text });
+    });
     return () => {
       cancelled = true;
     };
-  }, [workouts]);
+  }, [dayState, localInsight]);
+
+  const insightText = aiInsight?.localText === localInsight.text ? aiInsight.text : localInsight.text;
+
+  const handleInsightAction = () => {
+    switch (localInsight.action) {
+      case "start_workout":
+        if (localInsight.workout) onSelectWorkout(localInsight.workout);
+        else onAddWorkout();
+        break;
+      case "create_workout":
+        onAddWorkout();
+        break;
+      case "log_meal":
+        onTabChange("nutrition");
+        break;
+    }
+  };
 
   const recentWeight = progress.length > 0 ? progress[progress.length - 1].weight : null;
 
@@ -137,35 +210,12 @@ export const HomeView = ({
         </div>
       </header>
 
-      {/* AI Coach Quick Tip Card - Complete Statement, Actionable Summary */}
-      <Card className="bg-blue-50/50 dark:bg-gradient-to-br dark:from-orange-500/[0.05] dark:to-transparent border-blue-100/70 dark:border-orange-500/20 shadow-none">
-        <div className="flex gap-4 items-start">
-          <div className="bg-blue-600/10 dark:bg-orange-500/10 p-3 rounded-2xl shrink-0 text-blue-600 dark:text-orange-500 mt-0.5">
-            <Sparkles className="size-5" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex justify-between items-center mb-1.5">
-              <h4 className="font-black text-blue-600 dark:text-orange-500 text-[10px] uppercase tracking-[0.2em] leading-none">
-                AI Coach Insight
-              </h4>
-              <button
-                onClick={() => onTabChange("coach")}
-                className="text-[9px] font-black uppercase tracking-wider text-blue-600 dark:text-orange-400 hover:underline cursor-pointer shrink-0 ml-2"
-              >
-                Analiză Completă →
-              </button>
-            </div>
-            <p 
-              className={cn(
-                "text-slate-800 dark:text-zinc-200 text-sm font-medium leading-relaxed",
-                loadingAdvice && "animate-pulse"
-              )}
-            >
-              {loadingAdvice ? "Analizăm sesiunile tale pentru recomandarea de acțiune..." : advice}
-            </p>
-          </div>
-        </div>
-      </Card>
+      <CoachInsightCard
+        insight={localInsight}
+        text={insightText}
+        onAction={handleInsightAction}
+        onOpenCoach={() => onTabChange("coach")}
+      />
 
       {/* Quick Stats Grid */}
       <div className="grid grid-cols-2 gap-4">

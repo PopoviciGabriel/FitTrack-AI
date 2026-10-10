@@ -16,6 +16,9 @@ html {
   height: 100%;
   overscroll-behavior: none !important;
   -webkit-overflow-scrolling: touch;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
@@ -39,6 +42,23 @@ textarea,
 select {
   user-select: text !important;
   -webkit-user-select: text !important;
+}
+
+a,
+button,
+[role="button"],
+label,
+summary {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* iOS Safari zooms into any focused field below 16px; fields already at 16px or more keep their size. */
+@supports (-webkit-touch-callout: none) {
+  input:not([type="range"], [type="checkbox"], [type="radio"]):not(.text-base, .text-lg, .text-xl, .text-2xl, .text-3xl, .text-4xl, .text-5xl, .text-6xl),
+  textarea:not(.text-base, .text-lg, .text-xl, .text-2xl, .text-3xl),
+  select:not(.text-base, .text-lg, .text-xl, .text-2xl, .text-3xl) {
+    font-size: 16px;
+  }
 }
 
 #root {
@@ -93,7 +113,6 @@ select {
 .pb-safe {
   padding-bottom: env(safe-area-inset-bottom);
 }
-
 /* html5-qrcode sizes its <video> in fixed pixels; make it fill the viewfinder instead. */
 #fittrack-barcode-reader video {
   width: 100% !important;

@@ -154,6 +154,37 @@ export interface NutritionAdviceResult {
   engine: NutritionEngineMeta;
 }
 
+/** What the home "AI Coach Insight" card talks about, in priority order. */
+export type HomeInsightKind = "first_workout" | "workout_pending" | "nutrition";
+
+export type HomeInsightAction = "create_workout" | "start_workout" | "log_meal";
+
+/** The user's current day as seen from the home screen, read from local storage only. */
+export interface HomeDayState {
+  /** Local hour, 0-23. */
+  hour: number;
+  hasWorkouts: boolean;
+  /** Title of the workout already logged today, if any. */
+  completedWorkoutTitle: string | null;
+  /** Next workout of the rotation (the least recently trained one); still set on a rest day. */
+  scheduledWorkout: Workout | null;
+  /** The user already reached their usual number of training days in the last 7 days. */
+  isRestDay: boolean;
+  consumed: MacroTotals;
+  targets: MacroTotals;
+  mealsLogged: number;
+}
+
+export interface HomeCoachInsight {
+  kind: HomeInsightKind;
+  /** At most two short sentences. */
+  text: string;
+  action: HomeInsightAction;
+  actionLabel: string;
+  /** Opened by the "start_workout" action. */
+  workout?: Workout;
+}
+
 export type DictionaryFoodGroup =
   | "pasare"
   | "carne_rosie"
