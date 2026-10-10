@@ -51,6 +51,10 @@ export const RestTimer: React.FC<RestTimerProps> = ({ placement }) => {
   const progressPercent =
     totalSeconds > 0 ? Math.min(100, Math.max(0, ((totalSeconds - remainingSeconds) / totalSeconds) * 100)) : 0;
   const layerClass = placement === "editor" ? "z-[60]" : "z-[45]";
+  const bottomClass =
+    placement === "screen"
+      ? "bottom-[calc(env(safe-area-inset-bottom)+5.75rem)]"
+      : "bottom-[calc(env(safe-area-inset-bottom)+5.5rem)]";
 
   return (
     <AnimatePresence mode="wait">
@@ -63,7 +67,7 @@ export const RestTimer: React.FC<RestTimerProps> = ({ placement }) => {
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.8, y: 20 }}
             transition={{ type: "spring", stiffness: 380, damping: 28 }}
-            className={cn("fixed bottom-[calc(env(safe-area-inset-bottom)+5.5rem)] left-4", layerClass)}
+            className={cn("fixed left-4", bottomClass, layerClass)}
           >
             <div
               role="timer"
@@ -137,7 +141,7 @@ export const RestTimer: React.FC<RestTimerProps> = ({ placement }) => {
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 30 }}
             transition={{ type: "spring", stiffness: 380, damping: 28 }}
-            className={cn("fixed bottom-[calc(env(safe-area-inset-bottom)+5.5rem)] left-4 right-4 max-w-md mx-auto", layerClass)}
+            className={cn("fixed left-4 right-4 max-w-md mx-auto", bottomClass, layerClass)}
           >
             <div
               className={`relative overflow-hidden rounded-[2.2rem] pt-7 pb-5 px-6 shadow-2xl border backdrop-blur-2xl transition-all ${

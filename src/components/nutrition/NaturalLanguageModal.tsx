@@ -156,20 +156,20 @@ export const NaturalLanguageModal: React.FC<NaturalLanguageModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="relative w-full max-w-xl max-h-[92vh] flex flex-col rounded-[2.5rem] bg-[#121215] border border-white/10 shadow-2xl overflow-hidden text-white">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/40 backdrop-blur-md animate-in fade-in duration-200">
+      <div className="relative w-full max-w-lg mx-auto max-h-[82dvh] flex flex-col overflow-hidden rounded-[28px] bg-white/95 dark:bg-[#161618]/95 backdrop-blur-2xl border border-black/[0.08] dark:border-white/[0.1] shadow-2xl shadow-black/20">
         {/* Header */}
-        <div className="px-6 pt-6 pb-4 flex items-center justify-between border-b border-white/5 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="size-10 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+        <div className="px-5 pt-5 pb-4 flex items-center justify-between gap-3 border-b border-black/[0.06] dark:border-white/[0.08] shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="size-10 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 shrink-0">
               <MessageSquareText className="size-5" />
             </div>
-            <div>
-              <h2 className="text-lg font-black tracking-tight text-white flex flex-wrap items-center gap-2">
+            <div className="min-w-0">
+              <h2 className="text-lg font-semibold tracking-tight text-slate-900 dark:text-white flex flex-wrap items-center gap-2">
                 Jurnal Inteligent prin Text
                 <EngineModeBadge advanced={advancedMode} />
               </h2>
-              <p className="text-xs text-zinc-400">
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
                 Descrie masa în limbaj liber și FitTrack extrage alimentele și macronutrienții
               </p>
             </div>
@@ -178,14 +178,14 @@ export const NaturalLanguageModal: React.FC<NaturalLanguageModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="size-9 rounded-2xl bg-zinc-800/80 hover:bg-zinc-700 flex items-center justify-center text-zinc-400 hover:text-white transition-colors cursor-pointer"
+            className="w-8 h-8 shrink-0 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-white flex items-center justify-center transition-transform active:scale-90 cursor-pointer"
           >
             <X className="size-4" />
           </button>
         </div>
 
         {/* Scrollable Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-5">
+        <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-5">
           {/* Target Meal Slot Selector */}
           <div className="space-y-1.5">
             <label className="text-[10px] font-black uppercase tracking-wider text-zinc-400 block">
@@ -275,7 +275,7 @@ export const NaturalLanguageModal: React.FC<NaturalLanguageModalProps> = ({
 
           {/* Error Message */}
           {errorMsg && (
-            <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-200 text-xs flex items-start gap-3 animate-in fade-in">
+            <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-200 text-xs flex items-start gap-3 animate-in fade-in">
               <AlertCircle className="size-4 shrink-0 text-amber-400 mt-0.5" />
               <p className="font-semibold">{errorMsg}</p>
             </div>
@@ -283,10 +283,10 @@ export const NaturalLanguageModal: React.FC<NaturalLanguageModalProps> = ({
 
           {/* Parsed Items Review & Confirmation Section */}
           {parsedItems.length > 0 && (
-            <div className="space-y-4 pt-3 border-t border-white/10 animate-in slide-in-from-bottom-2 duration-300">
+            <div className="space-y-4 pt-3 border-t border-black/[0.08] dark:border-white/10 animate-in slide-in-from-bottom-2 duration-300">
               <div className="flex items-center justify-between">
                 <div>
-                  <h4 className="text-sm font-black text-white uppercase tracking-tight">
+                  <h4 className="text-sm font-semibold text-slate-900 dark:text-white uppercase tracking-tight">
                     Alimente Identificate ({parsedItems.length})
                   </h4>
                   <p className="text-[11px] text-zinc-400">
@@ -374,7 +374,7 @@ export const NaturalLanguageModal: React.FC<NaturalLanguageModalProps> = ({
                   <span className="text-[10px] font-black uppercase tracking-wider text-indigo-400 block">
                     Total Masă
                   </span>
-                  <p className="text-base font-black text-white">
+                  <p className="text-base font-black text-slate-900 dark:text-white">
                     {Math.round(batchTotals.calories)} kcal
                   </p>
                 </div>

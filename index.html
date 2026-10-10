@@ -12,15 +12,26 @@
   <meta property="og:description"
     content="Aplicație de fitness & hipertrofie: antrenamente, nutriție macro, analize AI și progressive overload." />
 
-  <!-- iOS standalone: conținutul trece sub bara de status (viewport-fit=cover); layout-ul compensează cu env(safe-area-inset-*) -->
+  <!-- iOS standalone: bara de status e opacă, colorată după theme-color (sincronizat cu tema din App.tsx), cu text nativ negru/alb -->
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="FitTrack" />
   <meta name="application-name" content="FitTrack" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <meta name="theme-color" content="#121212" />
-  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#121212" />
-  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#121212" />
+  <meta name="theme-color" content="#f4f7f0" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
+  <script>
+    // Înainte de primul paint: tema din aplicație poate diferi de cea a sistemului, iar iOS preia culoarea barei de status la pornire.
+    (function () {
+      var dark = true;
+      try {
+        dark = localStorage.getItem("app-theme") !== "light";
+      } catch (e) {}
+      document.documentElement.classList.toggle("dark", dark);
+      var metas = document.querySelectorAll('meta[name="theme-color"]');
+      for (var i = 0; i < metas.length; i++) metas[i].setAttribute("content", dark ? "#000000" : "#f4f7f0");
+    })();
+  </script>
 
   <!-- Manifestul web (manifest.webmanifest) este generat și injectat automat de vite-plugin-pwa -->
 
@@ -29,7 +40,7 @@
   <link rel="icon" type="image/png" href="/icon-192.png" />
 </head>
 
-<body class="bg-black text-white select-none overflow-x-hidden">
+<body class="select-none overflow-x-hidden">
   <div id="root"></div>
   <script type="module" src="/src/main.tsx"></script>
 </body>

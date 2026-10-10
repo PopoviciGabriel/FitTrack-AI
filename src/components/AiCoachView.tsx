@@ -483,7 +483,7 @@ export const AiCoachView: React.FC<AiCoachViewProps> = ({ workouts, onUpgradeCli
   return (
     <div className="space-y-6 pb-28 animate-in fade-in slide-in-from-bottom-4 duration-500 select-none">
       {/* Top Sticky Header */}
-      <header className="pt-[calc(env(safe-area-inset-top)+1rem)] pb-4 px-6 sticky top-0 bg-[#f4f7f0] dark:bg-[#000000] z-20 border-b border-slate-200 dark:border-white/5 -mx-4 transition-all flex justify-between items-center gap-3">
+      <header className="pt-2 pb-4 px-6 sticky top-[env(safe-area-inset-top)] bg-[#f4f7f0] dark:bg-[#000000] z-20 -mx-4 transition-all flex justify-between items-center gap-3">
         <div className="min-w-0">
           <h1 className="text-3xl font-black tracking-tighter text-slate-950 dark:text-zinc-50 uppercase leading-none">
             AI COACH

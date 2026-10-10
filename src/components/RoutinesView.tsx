@@ -112,7 +112,7 @@ export const RoutinesView: React.FC<RoutinesViewProps> = ({
 
   return (
     <div className="space-y-6 pb-24 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <header className="pt-[calc(env(safe-area-inset-top)+1rem)] pb-4 px-6 sticky top-0 bg-[#f4f7f0] dark:bg-[#0A0A0A] z-20 border-b border-slate-200 dark:border-white/5 -mx-4 transition-all flex justify-between items-center">
+      <header className="pt-2 pb-4 px-6 sticky top-[env(safe-area-inset-top)] bg-[#f4f7f0] dark:bg-[#000000] z-20 -mx-4 transition-all flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-black tracking-tighter text-slate-950 dark:text-zinc-50 uppercase leading-none">
             Rutine.

@@ -8,11 +8,21 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
-/* Resetare completă a fundalului și eliminare umbre/vignete iOS */
+/* iOS pictează cu acest fundal zona barei de status și overscroll-ul, deci trebuie să urmeze tema din aplicație */
+html,
+body,
+#root {
+  background-color: #f4f7f0;
+}
+
+html.dark,
+html.dark body,
+html.dark #root {
+  background-color: #000000;
+}
+
 html {
-  background: #000000 !important;
-  background-color: #000000 !important;
-  color: #ffffff;
+  color: #1e293b;
   height: 100%;
   overscroll-behavior: none !important;
   -webkit-overflow-scrolling: touch;
@@ -21,9 +31,11 @@ html {
   text-size-adjust: 100%;
 }
 
+html.dark {
+  color: #ffffff;
+}
+
 body {
-  background: #000000 !important;
-  background-color: #000000 !important;
   min-height: 100%;
   min-height: -webkit-fill-available;
   margin: 0;
@@ -90,8 +102,6 @@ summary {
 
 #root {
   min-height: 100vh;
-  background: #000000 !important;
-  background-color: #000000 !important;
 }
 
 /* Eliminare totală scrollbar */

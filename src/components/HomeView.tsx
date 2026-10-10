@@ -186,7 +186,7 @@ export const HomeView = ({
   return (
     <div className="space-y-6 pb-24 animate-in fade-in slide-in-from-bottom-4 duration-700">
       {/* Top Banner Header */}
-      <header className="flex justify-between items-center bg-[#f4f7f0] dark:bg-[#0A0A0A] sticky top-0 z-20 pt-[calc(env(safe-area-inset-top)+1rem)] pb-4 px-6 border-b border-slate-200 dark:border-white/5 -mx-4 transition-all">
+      <header className="flex justify-between items-center bg-[#f4f7f0] dark:bg-[#000000] sticky top-[env(safe-area-inset-top)] z-20 pt-2 pb-4 px-6 -mx-4 transition-all">
         <div>
           <h1 className="text-3xl font-black tracking-tighter text-slate-950 dark:text-zinc-50 uppercase leading-none">FITTRACK</h1>
           <p className="text-blue-600 dark:text-orange-500 text-[10px] font-black uppercase tracking-[0.35em] mt-1.5 leading-none">

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useOptimistic, startTransition } from "react";
 import { 
   Dumbbell, 
   TrendingUp, 
@@ -34,6 +34,8 @@ import {
 } from "./services/storageService";
 import { isFromAnotherDay } from "./services/algorithmService";
 import { openRestTimer, setRestTimerMinimized } from "./services/restTimerService";
+import { useCompactOnScroll } from "./lib/useCompactOnScroll";
+import { useDockScrub } from "./lib/useDockScrub";
 import { UpgradeModal } from "./components/UpgradeModal";
 import { TrialBanner, formatTrialDays } from "./components/TrialBanner";
 import { ProGuard } from "./components/ProGuard";
@@ -49,6 +51,28 @@ import { EvolutionView } from "./components/EvolutionView";
 
 // --- Components ---
 
+// index.css resets box-shadow on every element outside the Tailwind layers, so glass shadows need the important modifier.
+const DOCK_GLASS_CLASS =
+  "bg-white/65 backdrop-blur-2xl border border-white/60 shadow-[0_8px_30px_rgb(0,0,0,0.06),inset_0_1px_1px_rgba(255,255,255,0.8)]! " +
+  "dark:bg-zinc-900/60 dark:border-white/10 dark:shadow-[0_8px_30px_rgb(0,0,0,0.4),inset_0_1px_1px_rgba(255,255,255,0.15)]!";
+const DOCK_PILL_CLASS =
+  "rounded-full border backdrop-blur-2xl " +
+  "bg-white/40 border-white/80 shadow-[inset_0_2px_3px_rgba(255,255,255,0.95),inset_0_-1.5px_2px_rgba(0,0,0,0.08),0_6px_24px_rgba(0,0,0,0.08)]! " +
+  "dark:bg-white/[0.12] dark:border-white/25 dark:shadow-[inset_0_1.5px_2.5px_rgba(255,255,255,0.4),0_6px_24px_rgba(0,0,0,0.5)]!";
+const DOCK_PILL_GLOW_CLASS =
+  "bg-gradient-to-b from-white/70 via-white/15 to-transparent dark:from-white/25 dark:via-white/[0.05] dark:to-transparent";
+/** Shared by the dock and its tabs so the natural/compact resize moves as one piece. */
+const DOCK_RESIZE_CLASS = "duration-350 ease-[cubic-bezier(0.25,1,0.5,1)]";
+/**
+ * The snap to a tab; useDockScrub suspends it while a finger drags the pill.
+ * Transform and opacity only, so the slide stays on the compositor while the next view mounts.
+ */
+const PILL_SLIDE_CLASS =
+  "transition-[transform,opacity] duration-320 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform";
+/** The pill swells slightly under the finger, with a small spring overshoot. */
+const PILL_LIFT_CLASS = "transition-[scale] duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)]";
+const PRESS_RECOIL_CLASS = "transition-transform duration-200 ease-out";
+
 const Navbar = ({ 
   activeTab, 
   setActiveTab 
@@ -63,37 +87,102 @@ const Navbar = ({
     { id: "coach", icon: Sparkles, label: "AI COACH" },
     { id: "evolution", icon: Activity, label: "EVOLUȚIE" },
   ];
+  // The pill moves on the tap itself; the view swap renders as a transition behind it.
+  const [selectedTab, setSelectedTab] = useOptimistic(activeTab);
+  const selectTab = (id: string) => {
+    startTransition(() => {
+      setSelectedTab(id);
+      setActiveTab(id);
+    });
+  };
+  const activeIndex = tabs.findIndex((tab) => tab.id === selectedTab);
+  const compact = useCompactOnScroll(activeTab);
+  const navRef = useRef<HTMLElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const pillRef = useRef<HTMLSpanElement>(null);
+  const scrub = useDockScrub({
+    surfaceRef: navRef,
+    trackRef,
+    pillRef,
+    count: tabs.length,
+    restIndex: activeIndex,
+    onSelect: (index) => {
+      const tab = tabs[index];
+      if (tab) selectTab(tab.id);
+    },
+  });
+  const pillVisible = scrub.index !== null || activeIndex >= 0;
+  const highlightedIndex = scrub.index ?? activeIndex;
+  const pressedIndex = scrub.pressed ? scrub.index : null;
+  const pillLifted = pressedIndex !== null;
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 z-40 bg-white/95 dark:bg-[#000000] border-t border-slate-200 dark:border-white/10 select-none touch-manipulation">
-      <div className="flex justify-around items-center max-w-lg mx-auto px-1">
-        {tabs.map((tab) => (
+    <nav
+      ref={navRef}
+      aria-label="Navigare principală"
+      className={cn(
+        "fixed bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-40 w-[calc(100%-1.5rem)] rounded-full select-none touch-none",
+        DOCK_GLASS_CLASS,
+        "transition-[max-width,padding]",
+        DOCK_RESIZE_CLASS,
+        compact ? "max-w-[296px] p-[3px]" : "max-w-[356px] p-1"
+      )}
+    >
+      <div ref={trackRef} className="relative flex items-center w-full">
+        {/* No style prop: useDockScrub owns this span's transform. */}
+        <span
+          ref={pillRef}
+          aria-hidden
+          className={cn(
+            "absolute inset-y-0 left-0 w-1/5 pointer-events-none",
+            PILL_SLIDE_CLASS,
+            !pillVisible && "opacity-0"
+          )}
+        >
+          <span
+            className={cn(
+              "absolute inset-0",
+              DOCK_PILL_CLASS,
+              PILL_LIFT_CLASS,
+              pillLifted && "scale-[1.02]"
+            )}
+          >
+            <span
+              className={cn(
+                "absolute inset-0 rounded-full transition-opacity duration-200",
+                DOCK_PILL_GLOW_CLASS,
+                pillLifted ? "opacity-100" : "opacity-0"
+              )}
+            />
+          </span>
+        </span>
+        {tabs.map((tab, index) => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
+            type="button"
+            onClick={() => selectTab(tab.id)}
+            aria-current={selectedTab === tab.id ? "page" : undefined}
             className={cn(
-              "flex flex-col items-center justify-center w-full py-1 transition-all duration-150 relative group cursor-pointer active:scale-95",
-              activeTab === tab.id 
-                ? "text-blue-600 dark:text-orange-500 scale-105" 
+              // Touch recoil follows the scrub instead: a CSS :active shrink would stay stuck where a scrub began.
+              "group relative flex-1 min-w-0 flex items-center justify-center cursor-pointer active:scale-100 active:opacity-100",
+              "transition-[padding,color]",
+              DOCK_RESIZE_CLASS,
+              compact ? "py-2.5" : "py-3.5",
+              highlightedIndex === index
+                ? "text-blue-600 dark:text-orange-500" 
                 : "text-slate-400 hover:text-slate-600 dark:text-zinc-500 dark:hover:text-zinc-200"
             )}
           >
-            <div className="relative">
-              <tab.icon className={cn(
-                "size-5 sm:size-6 mb-1 transition-transform duration-150", 
-                activeTab === tab.id ? "text-blue-600 dark:text-orange-500" : "text-slate-400 dark:text-zinc-500"
-              )} />
-            </div>
-            <span className={cn(
-              "text-[9px] uppercase font-black tracking-wider transition-opacity",
-              activeTab === tab.id ? "opacity-100 text-blue-600 dark:text-orange-500" : "opacity-90 text-slate-400 dark:text-zinc-500"
-            )}>{tab.label}</span>
-            {activeTab === tab.id && (
-              <motion.div 
-                layoutId="nav-indicator"
-                className="absolute -top-1 left-1/4 right-1/4 h-0.5 bg-blue-600 dark:bg-orange-500 rounded-full"
-              />
-            )}
+            <span
+              className={cn(
+                "flex flex-col items-center pointer-fine:group-active:scale-[0.96]",
+                PRESS_RECOIL_CLASS,
+                pressedIndex === index && "scale-[0.96]"
+              )}
+            >
+              <tab.icon className="size-5" />
+              <span className="text-[9px] font-medium tracking-tight mt-0.5 leading-none whitespace-nowrap">{tab.label}</span>
+            </span>
           </button>
         ))}
       </div>
@@ -116,7 +205,7 @@ const WorkoutsView = ({
 }) => {
   return (
     <div className="space-y-6 pb-24 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <header className="pt-[calc(env(safe-area-inset-top)+0.75rem)] pb-4 px-6 sticky top-0 bg-[#f4f7f0] dark:bg-[#000000] z-20 border-b border-slate-200 dark:border-white/5 -mx-4 transition-all flex justify-between items-center">
+      <header className="pt-2 pb-4 px-6 sticky top-[env(safe-area-inset-top)] bg-[#f4f7f0] dark:bg-[#000000] z-20 -mx-4 transition-all flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-black tracking-tighter text-slate-950 dark:text-zinc-50 uppercase leading-none">JURNAL</h1>
           <p className="text-blue-600 dark:text-orange-500 text-[10px] font-black uppercase tracking-[0.4em] mt-1.5 leading-none">Istoric Antrenamente</p>
@@ -218,7 +307,14 @@ function AppContent() {
   const [selectedWorkout, setSelectedWorkout] = useState<Workout | null>(null);
   const [showWeightModal, setShowWeightModal] = useState(false);
   const [tempWeight, setTempWeight] = useState("");
-  const [theme, setTheme] = useState<"light" | "dark">("dark");
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    try {
+      return localStorage.getItem("app-theme") === "light" ? "light" : "dark";
+    } catch {
+      // storage unavailable: keep the default theme
+      return "dark";
+    }
+  });
   
   // Licensing & Modals State
   const [license, setLicense] = useState<LicenseInfo>(PurchaseService.getLicense());
@@ -235,14 +331,6 @@ function AppContent() {
     setWorkouts(loadWorkouts());
     setProgress(loadProgress());
 
-    let savedTheme: string | null = null;
-    try {
-      savedTheme = localStorage.getItem("app-theme");
-    } catch {
-      // storage unavailable: keep the default theme
-    }
-    setTheme(savedTheme === "light" ? "light" : "dark");
-
     const unsub = PurchaseService.subscribe((lic) => {
       setLicense(lic);
     });
@@ -256,6 +344,10 @@ function AppContent() {
     } else {
       document.documentElement.classList.remove('dark');
     }
+    // iOS paints the standalone status bar with theme-color; the in-app theme can differ from the system one.
+    document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]').forEach((meta) => {
+      meta.content = theme === 'dark' ? '#000000' : '#f4f7f0';
+    });
     try {
       localStorage.setItem("app-theme", theme);
     } catch {
@@ -449,7 +541,7 @@ function AppContent() {
       <TrialBanner license={license} onBuyClick={() => setShowUpgradeModal(true)} />
 
       {/* Main Content cu padding de jos calibrat */}
-      <main className="max-w-lg mx-auto px-4 pb-[calc(env(safe-area-inset-bottom)+7.5rem)]">
+      <main className="max-w-lg mx-auto px-4 pb-[calc(env(safe-area-inset-bottom)+6.5rem)]">
         {activeTab === "home" && (
           <HomeView 
             workouts={workouts} 
@@ -530,20 +622,21 @@ function AppContent() {
 
       {/* Settings Modal */}
       {showSettingsModal && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs">
-          <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center">
-              <div>
-                <h3 className="text-2xl font-black text-slate-950 dark:text-white uppercase tracking-tight">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 sm:p-6 bg-black/40 backdrop-blur-md">
+          <div className="bg-white/95 dark:bg-[#161618]/95 backdrop-blur-2xl border border-black/[0.08] dark:border-white/[0.1] w-full max-w-lg mx-auto max-h-[82dvh] rounded-[28px] shadow-2xl shadow-black/20 flex flex-col overflow-hidden">
+          <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-6 pb-6 space-y-6">
+            <div className="flex justify-between items-center gap-3">
+              <div className="min-w-0">
+                <h3 className="text-2xl font-semibold text-slate-950 dark:text-white tracking-tight">
                   Setări FitTrack
                 </h3>
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Preferințe, AI & Licențiere</p>
+                <p className="text-[10px] font-medium tracking-tight text-slate-400 mt-0.5">Preferințe, AI & Licențiere</p>
               </div>
               <button
                 onClick={() => setShowSettingsModal(false)}
-                className="p-2 rounded-full bg-slate-100 dark:bg-zinc-800 text-slate-400 cursor-pointer"
+                className="w-8 h-8 shrink-0 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-white flex items-center justify-center transition-transform active:scale-90 cursor-pointer"
               >
-                <X className="size-5" />
+                <X className="size-4" />
               </button>
             </div>
 
@@ -637,6 +730,7 @@ function AppContent() {
                 FitTrack Pro • Built for Hypertrophy
               </p>
             </div>
+          </div>
           </div>
         </div>
       )}

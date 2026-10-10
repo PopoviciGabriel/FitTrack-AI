@@ -174,16 +174,16 @@ export const MetabolicWizardModal: React.FC<MetabolicWizardModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="relative w-full max-w-2xl max-h-[90vh] bg-white dark:bg-zinc-950 rounded-[2.5rem] border border-slate-200 dark:border-white/10 shadow-2xl flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/40 backdrop-blur-md animate-in fade-in duration-200">
+      <div className="relative w-full max-w-lg mx-auto max-h-[82dvh] flex flex-col overflow-hidden rounded-[28px] bg-white/95 dark:bg-[#161618]/95 backdrop-blur-2xl border border-black/[0.08] dark:border-white/[0.1] shadow-2xl shadow-black/20">
         {/* Header */}
-        <div className="p-5 border-b border-slate-100 dark:border-white/5 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-2xl bg-orange-500/10 text-orange-500">
+        <div className="p-5 border-b border-black/[0.06] dark:border-white/[0.08] flex items-center justify-between gap-3 shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="p-2.5 rounded-2xl bg-orange-500/10 text-orange-500 shrink-0">
               <Calculator className="size-5" />
             </div>
-            <div>
-              <h2 className="text-lg font-black text-slate-900 dark:text-white tracking-tight">
+            <div className="min-w-0">
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-white tracking-tight">
                 Calculator Metabolic & Macro Wizard
               </h2>
               <p className="text-xs text-slate-500 dark:text-zinc-400">
@@ -194,14 +194,14 @@ export const MetabolicWizardModal: React.FC<MetabolicWizardModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="p-2 rounded-full bg-slate-100 dark:bg-zinc-800 text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+            className="w-8 h-8 shrink-0 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-white flex items-center justify-center transition-transform active:scale-90 cursor-pointer"
           >
-            <X className="size-5" />
+            <X className="size-4" />
           </button>
         </div>
 
         {/* Form Body */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+        <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-5">
           {/* Step 1: Physical Data */}
           <div>
             <h4 className="text-xs font-black uppercase tracking-widest text-slate-400 dark:text-zinc-500 mb-2.5">
@@ -400,7 +400,7 @@ export const MetabolicWizardModal: React.FC<MetabolicWizardModalProps> = ({
         </div>
 
         {/* Footer Actions */}
-        <div className="p-5 border-t border-slate-100 dark:border-white/5 flex items-center justify-between gap-3 bg-slate-50 dark:bg-zinc-950">
+        <div className="p-5 border-t border-black/[0.06] dark:border-white/[0.08] flex items-center justify-between gap-3 bg-white/70 dark:bg-black/20 shrink-0">
           <button
             type="button"
             onClick={onClose}
